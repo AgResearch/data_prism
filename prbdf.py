@@ -35,7 +35,9 @@ class Distribution(object):
             
         self.input_streams = input_streams # this allows a user to pass in one or more "pre-cooked" python value providers - i.e.
                                            # arrays of tuples. The tuples provided must be consistent with the tuples that the
-                                           # file_to_stream_func function yields when applied to the input files
+                                           # file_to_stream_func function yields when applied to the input files. Note however that
+                                           # if you pass in an input stream, you can't use the multithreaded build method,
+                                           # as streams can't be pickled 
                                         
         self.part_count = part_count
         self.point_count = 0
