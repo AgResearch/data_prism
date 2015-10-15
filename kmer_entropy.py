@@ -147,7 +147,7 @@ def get_options():
     This script summaries kmer frequencies or entropies for multiple input files. The output is a single tab-delimited text file
     with one row per kmer and one column per input file
 
-    Input files may be fasta or fastq, compressed or uncommpressed. The format of each file is inferred from its suffix.
+    Input files may be fasta or fastq, compressed or uncompressed. The format of each file is inferred from its suffix.
 
     A sampling proportion may be specified, in which case a random sample of that proportion of each input file will be taken.
 
@@ -156,34 +156,28 @@ def get_options():
     1st, 5th, 9th, etc  sequences in the file; process 2 handles the 2nd, 6th, 10th, etc sequences in the file, etc; 
     results are merged at the end). The -p option can be used to specify more or less processes.
 
-    The summary for each file is saved in the build folder as a seralised python object file. The name of the file is based on the
-    name of the input file, with a suffix ".kmerdist.pickle" added. If a serialised summary file alrady exists, the script
-    will not bother re-analysing the input file. This means tables can be incrementally built, simply by re-running
+    The kmer summary for each input file is cached in the build folder as a serialised python object file. The name of the file is based on the
+    name of the input file, with a suffix ".kmerdist.pickle" added. If a serialised summary is already cached, the script
+    will not bother re-analysing the input file. This means the all-files summary table can be incrementally built, simply by re-running
     a previous build command, with additional filenames appended.
 
     """
     long_description = """
 examples :
 
-invincible$ ls -l /bifo/archive/Acremonium_et_al/nzgl01804/Raw
-total 45209895
--rw-rw-r-- 1 jaureguir fungi_users 3272229466 Oct  5 09:50 C7N0GANXX-1804-01-4-1_L004_R1.fastq.gz
--rw-rw-r-- 1 jaureguir fungi_users 3125568978 Oct  5 09:48 C7N0GANXX-1804-01-4-1_L004_R2.fastq.gz
--rw-rw-r-- 1 jaureguir fungi_users 3266721620 Oct  5 10:12 C7N0GANXX-1804-01-7-1_L004_R1.fastq.gz
 
-
-# make a table summarising base composition of all files with .fa sufix in current folder
+# make a table summarising base composition of all files with .fa suffix in current folder
 kmer_entropy.py -t frequency -k 1 ./*.fa
 
 # make a table summarising 6-mer entropy for all fastq files in /data/project2
 # , based on a random sample of 1/1000 seqs, split over 20 processes
 kmer_entropy.py -t entropy -k 6 -p 20 -s .001 /data/project2/*.fastq.gz
 
-# as above , but now include 2 references. If this is run in the same folder as the
-# above, the script will re-use the previous results in making the table, so will only
-# have to analyse the two new files listed. The two new files will not be randomly sampled
-# (no -s option specified), however for the existing files the re-used results are
-# based on random sampling. 
+# as above , but now also include 2 reference genomes. If this is run in the same folder as the
+# above, the script will re-use the previously cached results, so will only
+# have to analyse the kmer distribution for the two new files listed. The two new files will not
+# be randomly sampled (no -s option specified), however for the existing files the cached results are
+# based on a random sample.  
 kmer_entropy.py -t entropy -k 6 -p 20  /data/project2/*.fastq.gz /references/ref1.fa /references/ref2.fa 
                                                                             
     """
