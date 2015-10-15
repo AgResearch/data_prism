@@ -8,6 +8,7 @@ import exceptions
 import gzip
 import csv
 import math
+from types import GeneratorType
 
 PROC_POOL_SIZE=30
 
@@ -40,7 +41,7 @@ class Distribution(object):
                                            # as streams can't be pickled 
                                         
         self.part_count = part_count
-        self.point_count = 0
+        self.point_weight = 0
         self.approximate_zero_frequency = None
         self.interval_locator_parameters = []   # Array with either length zero or same length as the number of dimensions. (Specify this if you use the
                                           # built-in interval locators)
@@ -48,10 +49,10 @@ class Distribution(object):
         self.interval_locator_funcs = []  # an array of functions suitable for locating which multi-dimenisonal interval a given value-tuple
                                           # should be assigned to. There should be same length as interval_locator_parameters
         self.assignments_files = [] # should be same length as interval_locator_parameters
-        self.file_to_stream_func = None
+        self.file_to_stream_func = None   # this should yield the tuples that are the domain of the distribution
         self.file_to_stream_func_xargs = []        
-        self.value_provider_func = default_value_provider
-        self.count_provider_func = default_count_provider
+        self.weight_value_provider_func = default_weight_value_provider
+        self.weight_value_provider_func_xargs = []
         self.frequency_distribution = None
         self.DEBUG = False
 
@@ -61,7 +62,7 @@ class Distribution(object):
             print """
                distribution summary:
                
-               point count =            %s
+               total point weight =     %s
                dimension count =        %s
                part_count =             %s
 
@@ -73,7 +74,7 @@ class Distribution(object):
                assignments files:       %s
                value provider:          %s
                value provider xargs:    %s  
-            """%(self.point_count, len(self.interval_locator_funcs), self.part_count,\
+            """%(self.point_weight, len(self.interval_locator_funcs), self.part_count,\
                  str(self.input_filenames), str(self.interval_locator_parameters), str(self.interval_locator_funcs),\
                  str(self.assignments_files),str(self.file_to_stream_func),\
                  str(self.file_to_stream_func_xargs))
@@ -81,13 +82,13 @@ class Distribution(object):
             print """
                distribution summary:
                
-               point count =            %s
+               total point weight =     %s
                dimension count =        %s
                part_count =             %s
                approx_zero =            %s
                input filenames:         %s
                
-            """%(self.point_count, len(self.interval_locator_funcs), self.part_count,self.approximate_zero_frequency,\
+            """%(self.point_weight, len(self.interval_locator_funcs), self.part_count,self.approximate_zero_frequency,\
                  str(self.input_filenames))
             
     def list(self):
@@ -119,7 +120,6 @@ class Distribution(object):
             #print "(using additional %d input readers with record counts : %s)"%(len(self.inpucount_providert_streams), str(map(len, self.input_streams)))
             print "(using additional %d input readers)"%len(self.input_streams)
 
-            #reader_iters =  [(self.value_provider_func(record) for record in reader) for reader in self.input_streams]
             all_streams = file_streams + self.input_streams
             all_streams = itertools.chain(*all_streams)
         else:
@@ -139,29 +139,36 @@ class Distribution(object):
         myslice=itertools.islice(raw_values, slice_number, None, self.part_count) 
         
         sparse_data_summary = {}
-
-        count = 0
-        
+    
         for point in myslice:
             if self.DEBUG:
                 print "DEBUG raw value : %s"%str(point)
-            sparse_data_summary[self.value_provider_func(point)] = self.count_provider_func(point) + sparse_data_summary.setdefault(self.value_provider_func(point),0)
-            count += 1
+
+            for weight_value_tuple in self.weight_value_provider_func(point, *self.weight_value_provider_func_xargs):
+                if self.DEBUG:
+                    print "DEBUG weight_value_tuple = %s length %d"%(str(weight_value_tuple), len(weight_value_tuple))
+
+                if len(weight_value_tuple) != 1+len(self.interval_locator_funcs):
+                    raise prbdfException("Error - I received a weight_value_tuple %s but there are %d interval locators for locating the value"%(str(weight_value_tuple), len(self.interval_locator_funcs)))
+                weight = float(weight_value_tuple[0])
+                value = weight_value_tuple[1:]
+                if self.DEBUG:
+                    print "Value tuple = %s weight = %s"%(value, weight)
+                if type(value) != tuple:
+                    raise prbdfException("Error - I got %s from the weight_value provider: value should be a tuple , instead it is %s (%s)"%(str(weight_value), str(value), type(value)))
+                
+                sparse_data_summary[value] = weight  +  sparse_data_summary.setdefault(value,0)
+                
 
         partial = {}
-        count = 0
-        point_count = 0
+        point_weight = 0
         assignment_writers = []
         if len(self.assignments_files) > 0:
-            #print "DEBUG opening writers : %s"%str(self.assignments_files)
             assignment_writers = [open("%s.%d"%(assignments_file,slice_number) ,"w") for assignments_file in self.assignments_files]
 
-        #print "DEBUG running assignments using %s"%str(self.interval_locator_funcs)
         for (sparse_key, sparse_total) in sparse_data_summary.items():
-            #print "DEBUG3 %s %s"%(sparse_key, str(self.interval_locator_funcs))
 
             if len(sparse_key) != len(self.interval_locator_funcs):
-                #raise prbdfException("error - interval to map is %d dimensional but %d locators are specified"%(len(sparse_key), len(self.interval_locator_funcs)))
                 print "warning  - interval to map (%s) is %d dimensional but %d locators are specified"%(str(sparse_key), len(sparse_key), len(self.interval_locator_funcs))
                 continue
                 
@@ -169,12 +176,10 @@ class Distribution(object):
             
             if len(self.assignments_files) > 0:
                 map(lambda raw, assignment, writer: writer.write("%s\t%s\n"%(raw, assignment)), sparse_key , interval, assignment_writers)
-            
-            count += 1
 
             partial[interval] = partial.setdefault(interval,0) + sparse_total
             
-            point_count += sparse_total
+            point_weight += sparse_total
         if len(assignment_writers) > 0:
             map(lambda writer:writer.close(), assignment_writers)
         
@@ -185,11 +190,11 @@ class Distribution(object):
         returns a merge of the part pd's
         """
         self.frequency_distribution = {}
-        self.point_count = 0
+        self.point_weight = 0
         for part in self.part_dict.values():
             for interval in part:
                 self.frequency_distribution[interval] = self.frequency_distribution.setdefault(interval,0) + part[interval]
-                self.point_count += part[interval]
+                self.point_weight += part[interval]
 
         # calulate an "approximate_zero" frequency - it is half the minimum frequency in any interval
         self.approximate_zero_frequency = min(self.frequency_distribution.values())/2.0
@@ -202,65 +207,76 @@ class Distribution(object):
         #print "object contains : %s"%dir(self)
         
         input_streams = self.input_streams
-        #value_provider_filters = self.value_provider_filters
-        #value_provider = self.value_provider
-        #interval_locator_funcs = self.interval_locator_funcs
         
         self.input_streams = None 
-        #self.value_provider_filters = {}
-        #self.value_provider = None
-        #self.interval_locator_funcs = []
         
         pwriter = open(filename, "wb")
         pickle.dump(self, pwriter)
         pwriter.close()
         
         self.input_streams = input_streams
-        #self.value_provider_filters = value_provider_filters
-        #self.value_provider = value_provider
-        #self.interval_locator_funcs = interval_locator_funcs
         
     @staticmethod
     def load(filename):
         return p_load(filename)
-        
-    def get_frequency(self,point, default_frequency = 0):
+            
+    def get_frequency(self,point, default_frequency = 0, return_interval = False ):
         interval = self.get_containing_interval(point)
-        return self.frequency_distribution.get(interval, default_frequency)
+        if return_interval:
+            return (self.frequency_distribution.get(interval, default_frequency), interval)
+        else:
+            return self.frequency_distribution.get(interval, default_frequency)
 
     def get_density(self,point, method = None):
-        return self.get_frequency(point) / float(self.point_count)
+        return self.get_frequency(point) / float(self.point_weight)
     
     def get_information(self,point, method = None):
         frequency = self.get_frequency(point,0)
         if frequency > 0:
-            return -1.0 * math.log(self.get_frequency(point) / float(self.point_count))
+            return -1.0 * math.log(self.get_frequency(point) / float(self.point_weight))
         else:
-            return -1.0 * math.log(1.0 / (1.0 + float(self.point_count)))
+            return -1.0 * math.log(1.0 / (1.0 + float(self.point_weight)))
             
-    def get_information_projection(self, points):
-        return p_get_information_projection((self, points))
+    def get_information_projection(self, points, return_intervals = False):
+        return p_get_information_projection((self, points, return_intervals))
 
-    def get_signed_information_projection(self, points):
-        return p_get_signed_information_projection((self, points))
+    def get_signed_information_projection(self, points, return_intervals = False):
+        return p_get_signed_information_projection((self, points, return_intervals))
 
-    def get_unsigned_information_projection(self, points):
-        return p_get_unsigned_information_projection((self, points))
+    def get_unsigned_information_projection(self, points, return_intervals = False):
+        return p_get_unsigned_information_projection((self, points, return_intervals))
 
-    def get_frequency_projection(self, points):
-        return p_get_frequency_projection((self, points))
+    def get_frequency_projection(self, points, return_intervals = False):
+        return p_get_frequency_projection((self, points, return_intervals))
+
 
     @staticmethod
-    def get_projections(distribution_names, points, projection_type):
+    def get_intervals(distribution_names,proc_pool_size=PROC_POOL_SIZE):
+        """
+        this method gets a union of all the intervals from a number of distributions
+        """
+        pool = Pool(proc_pool_size)
+        distributions = pool.map(p_load,distribution_names)
+        intervals = set()
+        for distribution in distributions:
+            intervals |= set(distribution.get_distribution().keys())
+
+        return list(intervals)
+        
+
+    @staticmethod
+    def get_projections(distribution_names, points, projection_type, return_intervals = False, proc_pool_size = PROC_POOL_SIZE):
         """
         this method gets frequency projections of a set of points across multiple distributions
         """
-        pool = Pool(PROC_POOL_SIZE)
-        print "DEBUG about to load %s"%str(distribution_names)
+        print "distributing projections across %d processes"%proc_pool_size        
+        pool = Pool(proc_pool_size)
+        print "get_projections : loading %s"%str(distribution_names)
         distributions = pool.map(p_load,distribution_names)
-        print "DEBUG done loading "
+        print "done loading %d distributions"%len(distributions)
 
-        args = zip(distributions, [points for distribution in distributions])
+        args = zip(distributions, [points for distribution in distributions], [return_intervals for distribution in distributions])
+
         if projection_type == "frequency": 
             projections = pool.map(p_get_frequency_projection, args)
         elif projection_type == "unsigned_information":
@@ -284,10 +300,6 @@ class Distribution(object):
         Each column is headed up by a name of the column.
         """
         distance_matrix = {}
-
-        #print "DEBUG DIM"
-        #print space_iter.next()
-        #print space_iter.next()
         
         point_names = space_iter.next()
         pair_names = [pair for pair in itertools.combinations(point_names,2)]
@@ -326,94 +338,137 @@ class Distribution(object):
 # top level versions of Distribution methods
 # for use in multiprocessing context
 #################################################
-def p_get_frequency_projection((distribution, points)):
+def p_get_frequency_projection((distribution, points, return_intervals)):
+
     projection = len(points) * [None]
-    point_count = 0
-    for point in points:
-        projection[point_count] = distribution.get_frequency(point,0)
-        point_count += 1
-
-    return projection
-
-
-def p_get_information_projection((distribution, points)):
-    projection = len(points) * [None]
-    missing_count = 0
+    if return_intervals:
+        intervals = len(points) * [None]
+    
     index = 0
     for point in points:
-        projection[index] = distribution.get_frequency(point,0)
-        if projection[index] == 0:
-            missing_count += 1
+        if not return_intervals:
+            projection[index] = distribution.get_frequency(point,0)
+        else:
+            (projection[index], intervals[index]) = distribution.get_frequency(point,0, True)
+        
+        #projection[point_weight] = distribution.get_frequency(point,0)
+        #point_weight += 1
         index += 1
 
-    missing_count = float(missing_count)
+    if not return_intervals:
+        return projection
+    else:
+        return (projection, intervals)
 
-    # all points projected onto missing get frequency "missing_count"
+
+def p_get_information_projection((distribution, points, return_intervals)):
+    projection = len(points) * [None]
+    if return_intervals:
+        intervals = len(points) * [None]
+        
+    missing_weight = 0
+    index = 0
+    for point in points:
+        if not return_intervals:
+            projection[index] = distribution.get_frequency(point,0)
+        else:
+            (projection[index], intervals[index]) = distribution.get_frequency(point,0, True)
+            
+        if projection[index] == 0:
+            missing_weight += 1
+            
+        index += 1
+
+    missing_weight = float(missing_weight)
+
+    # all points projected onto missing get frequency "missing_weight"
     # calculate information content based on the basis frequencies grossed up for 
     # missing points 
     for index in range(len(projection)):
         if projection[index] == 0:
-            projection[index] = missing_count
+            projection[index] = missing_weight
 
-        projection[index] = -1.0 * math.log(projection[index] / float(distribution.point_count + missing_count), 2.0)
+        projection[index] = -1.0 * math.log(projection[index] / float(distribution.point_weight + missing_weight), 2.0)
 
-    return projection
+    if not return_intervals:
+        return projection
+    else:
+        return (projection, intervals)
 
 
-def p_get_signed_information_projection((distribution, points)):
+def p_get_signed_information_projection((distribution, points, return_intervals)):
     projection = len(points) * [None]
-    missing_count = 0
+    if return_intervals:
+        intervals = len(points) * [None]
+    missing_weight = 0
     index = 0
     for point in points:
-        projection[index] = distribution.get_frequency(point,0)
+        if not return_intervals:
+            projection[index] = distribution.get_frequency(point,0)
+        else:
+            (projection[index], intervals[index]) = distribution.get_frequency(point,0, True)
+            
         if projection[index] == 0:
-            missing_count += 1
+            missing_weight += 1
         index += 1
 
-    missing_count = float(missing_count)
+    missing_weight = float(missing_weight)
 
-    if missing_count == len(points):
+    if missing_weight == len(points):
         raise prbdfException("no point maps - unable to calculate projection")
 
-    # as above (unsigned) all points projected onto missing get frequency "missing_count"
+    # as above (unsigned) all points projected onto missing get frequency "missing_weight"
     # but now the missing points do not affect the projection of other points. 
     # Instead missing points get a negative information measure calculated as
     # P/1-P log P
     # where P is the probability that a projection point maps - i.e. is not missing
-    P = (len(points) - missing_count) / float(len(points))
+    P = (len(points) - missing_weight) / float(len(points))
     for index in range(len(projection)):
         if projection[index] == 0:
             projection[index] =  (P / float(1-P) ) * math.log(P,2.0)
         else:
-            projection[index] = -1.0 * math.log(projection[index] / float(distribution.point_count), 2.0)
+            projection[index] = -1.0 * math.log(projection[index] / float(distribution.point_weight), 2.0)
 
-    return projection
+    if not return_intervals:
+        return projection
+    else:
+        return (projection, intervals)
 
 
-def p_get_unsigned_information_projection((distribution, points)):
+def p_get_unsigned_information_projection((distribution, points, return_intervals)):
     projection = len(points) * [None]
-    missing_count = 0
+    if return_intervals:
+        intervals = len(points) * [None]
+    missing_weight = 0
     index = 0
     for point in points:
-        projection[index] = distribution.get_frequency(point,0)
+        if not return_intervals:
+            projection[index] = distribution.get_frequency(point,0)
+        else:
+            (projection[index], intervals[index]) = distribution.get_frequency(point,0, True)
         if projection[index] == 0:
-            missing_count += 1
+            missing_weight += 1
         index += 1
 
-    missing_count = float(missing_count)
+    missing_weight = float(missing_weight)
 
-    if missing_count == len(points):
+    if missing_weight == len(points):
         raise prbdfException("no point maps - unable to calculate projection")
 
     # all points projected onto missing get frequency of approximate_zero_frequency (e.g. often .5) 
     # (but do not affect the projection of other points)
     for index in range(len(projection)):
         if projection[index] == 0:
-            projection[index] = -1.0 * math.log(distribution.approximate_zero_frequency / float(distribution.point_count), 2.0)
+            projection[index] = -1.0 * math.log(distribution.approximate_zero_frequency / float(distribution.point_weight), 2.0)
         else:
-            projection[index] = -1.0 * math.log(projection[index] / float(distribution.point_count), 2.0)
+            projection[index] = -1.0 * math.log(projection[index] / float(distribution.point_weight), 2.0)
 
-    return projection
+    if not return_intervals:
+        return projection
+    else:
+        return (projection, intervals)
+
+
 
 def p_load(filename):
     preader = open(filename, "rb")
@@ -485,13 +540,14 @@ class outer_list(list):
         else:
             return super(outer_list,self).__getitem__(key)
 
-
-def default_count_provider(point):
-    return 1
-
-def default_value_provider(point):
-    return point
-
+def default_weight_value_provider(point, *xargs):
+    """
+    the default weight_value_provider function is suitable when used with a stream
+    provider (e.g file_to_stream or a user-provided steam)  that yields the domain points of the
+    distribution.
+    """
+    return (((1,)+point),)     # this needs to provide a tuple of 1 tuples (not just a tuple)
+                               # (because some provider functions provide tuples of many tuples)
 
 def get_file_type(file_name):
     """
@@ -567,33 +623,27 @@ def build_part((distob, slice_number)):
     print "build_part is building part %d"%slice_number
     return distob.get_partial_distribution(slice_number)
 
-def build(distob, use="multithreads"):
+def build(distob, use="multithreads", proc_pool_size = PROC_POOL_SIZE):
 
     if use == "cluster":
         args = [(distob, slice_number)  for slice_number in range(0,distob.part_count)]
-        #print "DEBUG : " + str(args)
         distob.part_dict = dict(pool.map(build_part,args))
 
-        #print distob.part_dict
         return distob.get_distribution()
         
     elif use == "multithreads":
-        pool = Pool(PROC_POOL_SIZE)
+        pool = Pool(proc_pool_size)
         
         args = [(distob, slice_number)  for slice_number in range(0,distob.part_count)]
-        #print "DEBUG : " + str(args)
 
-        print "mapping %s build parts to a pool of size %d"%(len(args), PROC_POOL_SIZE)
-        #print "details of first part prbdf object : %s"%dir(args[0])
+        print "mapping %s build parts to a pool of size %d"%(len(args), proc_pool_size)
         distob.part_dict = dict(pool.map(build_part,args))
 
-        #print distob.part_dict
         return distob.get_distribution()
 
     elif use == "singlethread":
         
         args = [(distob, slice_number)  for slice_number in range(0,distob.part_count)]
-        #print "DEBUG : " + str(args)
 
         results = []
         for arg in args:
@@ -601,7 +651,6 @@ def build(distob, use="multithreads"):
             
         distob.part_dict = dict(results)
 
-        #print distob.part_dict
         return distob.get_distribution()
     
     else:
