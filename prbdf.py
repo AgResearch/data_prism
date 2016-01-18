@@ -25,7 +25,8 @@ class Distribution(object):
     mixed continuous and discrete multivariate data (the continuous variables are binned)    
     """
 
-    
+    DEBUG = False
+
     def __init__(self,input_filenames, part_count = 1, input_streams=None):
         super(Distribution, self).__init__()
 
@@ -54,7 +55,6 @@ class Distribution(object):
         self.weight_value_provider_func = default_weight_value_provider
         self.weight_value_provider_func_xargs = []
         self.frequency_distribution = None
-        self.DEBUG = False
 
 
     def summary(self, details = False):
@@ -197,7 +197,12 @@ class Distribution(object):
                 self.point_weight += part[interval]
 
         # calulate an "approximate_zero" frequency - it is half the minimum frequency in any interval
-        self.approximate_zero_frequency = min(self.frequency_distribution.values())/2.0
+        values = self.frequency_distribution.values()
+        if len(values) > 0:
+            self.approximate_zero_frequency = min(self.frequency_distribution.values())/2.0
+        else:
+            self.approximate_zero_frequency = 0.5
+            self.point_weight = self.approximate_zero_frequency 
 
         return self.frequency_distribution
 
@@ -291,8 +296,74 @@ class Distribution(object):
         return projections
 
 
+#################################################
+# distance-related  methods
+# these methods don't really belong in this class here as a convenience.
+# They calculate distances between column vectors of a matrix acccording
+# to various metrics related to the frequency distributions that are the
+# subject of this class
+#################################################
+
     @staticmethod
-    def get_distance_matrix(space_iter):
+    def get_rank_iter(space_iter):
+        """
+        This method takes a matrix in which each column is probably a frequency or
+        entropy project and replaces each value in the column with its rank in the column,
+        and returns the matrix
+        """
+        point_names = space_iter.next()
+        if Distribution.DEBUG:
+            print "**** DEBUG ranking"            
+            print str(point_names)
+            
+        space_tuples = list(space_iter)
+        if Distribution.DEBUG:
+            print "**** DEBUG ranking"
+            print str(space_tuples)
+
+        ranked_columns=[]
+        for ipoint in range(0,len(point_names)):
+            index = range(0,len(space_tuples))
+
+            if Distribution.DEBUG:
+                print "**** DEBUG ranking"
+                print index
+                for i in range(0,len(space_tuples)):
+                    print ipoint, i, space_tuples[i][ipoint]
+                
+                
+            ordered_index = sorted(index, lambda index1, index2: cmp(space_tuples[index2][ipoint], space_tuples[index1][ipoint]))  # rank 0 = largest freq etc
+            ranks = sorted(index, lambda index1, index2: cmp(ordered_index[index1], ordered_index[index2]))
+
+            #make 1-based ranks
+            ranks=map(lambda x:1+x,ranks)
+            
+            ranked_columns.append(ranks)
+
+        if Distribution.DEBUG:
+            print "**** DEBUG ranking"
+            print ranked_columns
+
+        return itertools.chain([point_names], itertools.izip(*ranked_columns)) 
+
+    @staticmethod
+    def get_distance_matrix(space_iter, method="euclidean"):
+        """
+        this method doesn't really belong in this class but is here as a convenience.
+        This calculates the distances between column vectors of a matrix , where each
+        column is probably a frequency projecttion - but doens't have to be.
+        Each column is headed up by a name of the column.
+        """
+
+        if method == "euclidean":
+            return get_euclidean_distance_matrix(space_iter)
+        elif method == "zipfian":
+            return get_zipfian_distance_matrix(space_iter)
+        else:
+            raise prbdfException("unknown distance method %s"%method)
+        
+    @staticmethod
+    def get_euclidean_distance_matrix(space_iter):
         """
         this method doesn't really belong in this class but is here as a convenience.
         This calculates the distances between column vectors of a matrix , where each
@@ -325,6 +396,39 @@ class Distribution(object):
         point_names_sorted = sorted(point_names)
 
         return (distance_matrix, point_names_sorted)
+
+
+    @staticmethod
+    def get_zipfian_distance_matrix(space_iter):
+        """
+        """
+        distance_matrix = {}
+        
+        point_names = space_iter.next()
+        pair_names = [pair for pair in itertools.combinations(point_names,2)]
+        dimension_count = 0
+        for dimension in space_iter:
+            dimension_count += 1
+            #print "DEBUG %s"%str(dimension)
+            dimension_pairs = [ dimension_pair for dimension_pair in itertools.combinations(map(float, dimension),2)]
+            dimension_distances = [ dimension_distance for dimension_distance in map(lambda x:(x[1]-x[0])**2, dimension_pairs)] 
+            for i in range(0,len(pair_names)):
+                distance_matrix[pair_names[i]] = distance_matrix.get(pair_names[i],0) + dimension_distances[i]
+
+        for pair_name in distance_matrix:
+            distance_matrix[pair_name]  = math.sqrt( distance_matrix[pair_name] )
+
+        # make the matrix symmetric
+        for pair_name in pair_names:
+            distance_matrix[(pair_name[1], pair_name[0])] = distance_matrix[pair_name]
+        # fill in diagonal
+        for point_name in point_names:
+            distance_matrix[(point_name, point_name)] = 0
+
+        point_names_sorted = sorted(point_names)
+
+        return (distance_matrix, point_names_sorted)
+
 
     @staticmethod
     def print_distance_matrix(distance_matrix, point_names_sorted):   
@@ -414,8 +518,8 @@ def p_get_signed_information_projection((distribution, points, return_intervals)
 
     missing_weight = float(missing_weight)
 
-    if missing_weight == len(points):
-        raise prbdfException("no point maps - unable to calculate projection")
+    #if missing_weight == len(points):
+    #    raise prbdfException("no point maps - unable to calculate projection")
 
     # as above (unsigned) all points projected onto missing get frequency "missing_weight"
     # but now the missing points do not affect the projection of other points. 
@@ -452,8 +556,8 @@ def p_get_unsigned_information_projection((distribution, points, return_interval
 
     missing_weight = float(missing_weight)
 
-    if missing_weight == len(points):
-        raise prbdfException("no point maps - unable to calculate projection")
+    #if missing_weight == len(points):
+    #    raise prbdfException("no point maps - unable to calculate projection")
 
     # all points projected onto missing get frequency of approximate_zero_frequency (e.g. often .5) 
     # (but do not affect the projection of other points)
