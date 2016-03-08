@@ -9,6 +9,8 @@ import gzip
 import csv
 import math
 from types import GeneratorType
+import sys
+
 
 PROC_POOL_SIZE=30
 
@@ -258,7 +260,8 @@ class Distribution(object):
     @staticmethod
     def get_intervals(distribution_names,proc_pool_size=PROC_POOL_SIZE):
         """
-        this method gets a union of all the intervals from a number of distributions
+        this method gets a union of all the intervals from a number of distributions.
+        (Since it is returned as a list, this should be in a consistent order from call to call)
         """
         pool = Pool(proc_pool_size)
         distributions = pool.map(p_load,distribution_names)
@@ -266,7 +269,7 @@ class Distribution(object):
         for distribution in distributions:
             intervals |= set(distribution.get_distribution().keys())
 
-        return list(intervals)
+        return sorted(list(intervals))
         
 
     @staticmethod
@@ -308,7 +311,7 @@ class Distribution(object):
     def get_rank_iter(space_iter):
         """
         This method takes a matrix in which each column is probably a frequency or
-        entropy project and replaces each value in the column with its rank in the column,
+        entropy projection and replaces each value in the column with its rank in the column,
         and returns the matrix
         """
         point_names = space_iter.next()
@@ -332,7 +335,7 @@ class Distribution(object):
                     print ipoint, i, space_tuples[i][ipoint]
                 
                 
-            ordered_index = sorted(index, lambda index1, index2: cmp(space_tuples[index2][ipoint], space_tuples[index1][ipoint]))  # rank 0 = largest freq etc
+            ordered_index = sorted(index, lambda index1, index2: cmp(space_tuples[index1][ipoint], space_tuples[index2][ipoint]))
             ranks = sorted(index, lambda index1, index2: cmp(ordered_index[index1], ordered_index[index2]))
 
             #make 1-based ranks
@@ -351,7 +354,7 @@ class Distribution(object):
         """
         this method doesn't really belong in this class but is here as a convenience.
         This calculates the distances between column vectors of a matrix , where each
-        column is probably a frequency projecttion - but doens't have to be.
+        column is probably an entropyprojecttion - but doens't have to be.
         Each column is headed up by a name of the column.
         """
 
@@ -367,7 +370,7 @@ class Distribution(object):
         """
         this method doesn't really belong in this class but is here as a convenience.
         This calculates the distances between column vectors of a matrix , where each
-        column is probably a frequency projecttion - but doens't have to be.
+        column is probably an entropy projecttion - but doens't have to be.
         Each column is headed up by a name of the column.
         """
         distance_matrix = {}
@@ -375,7 +378,7 @@ class Distribution(object):
         point_names = space_iter.next()
         pair_names = [pair for pair in itertools.combinations(point_names,2)]
         dimension_count = 0
-        for dimension in space_iter:
+        for dimension in space_iter:  # each row is a dimension
             dimension_count += 1
             #print "DEBUG %s"%str(dimension)
             dimension_pairs = [ dimension_pair for dimension_pair in itertools.combinations(map(float, dimension),2)]
@@ -399,24 +402,59 @@ class Distribution(object):
 
 
     @staticmethod
-    def get_zipfian_distance_matrix(space_iter):
+    def get_zipfian_distance_matrix(space_iter, rank_iter):
         """
+        this method doesn't really belong in this class but is here as a convenience.
+        This calculates the distances between "zipfian functions" , which relate 
+        frequency-rank to frequency. The metric is based on a standard inner product
+        for pairs of functions, and is based on log(frequency) rather than frequency.
+        It looks similar to Euclidean distance, except that each term in the sum
+        is inverse weighted by rank.
+
+        Here we regard each pair of columns J from space_iter and rank_iter as
+        defining a function, consisting of the ordered pairs (rank_iter[i,J], space_iter[i,J])
+
+        space_iter and rank_iter are isomorphic data structures, with rank_iter containing
+        the ranks of each element of space_iter
         """
         distance_matrix = {}
         
         point_names = space_iter.next()
+        rank_iter.next() # throw away headings in the rank clone
+        
         pair_names = [pair for pair in itertools.combinations(point_names,2)]
-        dimension_count = 0
-        for dimension in space_iter:
-            dimension_count += 1
-            #print "DEBUG %s"%str(dimension)
-            dimension_pairs = [ dimension_pair for dimension_pair in itertools.combinations(map(float, dimension),2)]
-            dimension_distances = [ dimension_distance for dimension_distance in map(lambda x:(x[1]-x[0])**2, dimension_pairs)] 
-            for i in range(0,len(pair_names)):
-                distance_matrix[pair_names[i]] = distance_matrix.get(pair_names[i],0) + dimension_distances[i]
 
-        for pair_name in distance_matrix:
-            distance_matrix[pair_name]  = math.sqrt( distance_matrix[pair_name] )
+
+        # obtain the space of zipfian functions. Each function is represented by a dictionary, with key=rank,
+        # value = entropy. The space is a list of these dictionaries
+        space_aslist = list(space_iter)
+        rank_aslist = list(rank_iter)
+
+        function_space = [dict(map(lambda a,b:(a[j], b[j]), rank_aslist, space_aslist)) for j in range(0,len(point_names))]
+
+        #print "DEBUG"
+        #for key in function_space[0].keys():
+        #    print function_space[0][key], function_space[1][key], function_space[2][key]
+
+
+        def zipf_distance_func(f1,f2):
+            #print "DEBUG1"
+            #total = 0.0
+            #for key in f1.keys():
+            #    print key, (f1[key]-f2[key])**2 / float(key)
+            #    total += (f1[key]-f2[key])**2 / float(key)
+            #print "manual total = %s"%total
+                
+            d = math.sqrt(reduce(lambda dsum,rank: dsum + ((f1[rank]-f2[rank])**2 / float(rank))   ,f1.keys(), 0.0))
+            return d
+
+        # get distances between pairs of points            
+        for pair_name in pair_names:
+            pair_index = (point_names.index(pair_name[0]), point_names.index(pair_name[1]))
+            #print "DEBUG"
+            #print "processing %s ( %s )"%(str(pair_name), str(pair_index))
+            distance_matrix[pair_name] = zipf_distance_func(function_space[pair_index[0]],function_space[pair_index[1]])
+            #print "got %s"%distance_matrix[pair_name]
 
         # make the matrix symmetric
         for pair_name in pair_names:
@@ -428,13 +466,14 @@ class Distribution(object):
         point_names_sorted = sorted(point_names)
 
         return (distance_matrix, point_names_sorted)
-
+                                                            
+        
 
     @staticmethod
-    def print_distance_matrix(distance_matrix, point_names_sorted):   
-        print string.join([""] + point_names_sorted, "\t")
+    def print_distance_matrix(distance_matrix, point_names_sorted, outfile=sys.stdout):   
+        print >> outfile, string.join([""] + point_names_sorted, "\t")
         for row_point in point_names_sorted:
-            print string.join([row_point]+[str(distance_matrix[(row_point, col_point)]) for col_point in point_names_sorted], "\t")
+            print >> outfile, string.join([row_point]+[str(distance_matrix[(row_point, col_point)]) for col_point in point_names_sorted], "\t")
 
 
 

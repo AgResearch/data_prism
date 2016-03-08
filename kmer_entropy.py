@@ -23,20 +23,46 @@ def kmer_count_from_sequence(sequence, *args):
     import itertools
 
     reverse_complement = args[0]
-    patterns = args[1:]
+    pattern_window_length = args[1]  # optional - for fixed length patterns e.g. 6-mers etc, to speed up search
+    patterns = args[2:]
 
     #print "DEBUG sequence%s"%str(sequence)
     #print "DEBUG reverse_complement%s"%str(reverse_complement)
     #print "DEBUG patterns%s"%str(patterns)
 
-
-    kmer_iters = tuple((re.finditer(pattern, str(sequence.seq), re.I) for pattern in patterns))
-    kmer_iters = (match.group() for match in itertools.chain(*kmer_iters))
-    if not reverse_complement:
-        kmer_count_iter = ( ( len(list(kmer_iter)),kmer) for (kmer,kmer_iter) in itertools.groupby(kmer_iters, lambda kmer:kmer) )
+    if pattern_window_length is None:
+        # search for each pattern. Note that this does not count multiple instances 
+        # of a pattern that overlap - for example in TTTTTTT , the pattern TTTTTT will only count once. 
+        kmer_iters = tuple((re.finditer(pattern, str(sequence.seq), re.I) for pattern in patterns))
+        kmer_iters = (match.group() for match in itertools.chain(*kmer_iters))
+        if not reverse_complement:
+            kmer_count_iter = ( ( len(list(kmer_iter)),kmer) for (kmer,kmer_iter) in itertools.groupby(kmer_iters, lambda kmer:kmer) )
+        else:
+            kmer_count_iter = ( ( len(list(kmer_iter)),get_reverse_complement(kmer)) for (kmer,kmer_iter) in itertools.groupby(kmer_iters, lambda kmer:kmer) )
     else:
-        kmer_count_iter = ( ( len(list(kmer_iter)),get_reverse_complement(kmer)) for (kmer,kmer_iter) in itertools.groupby(kmer_iters, lambda kmer:kmer) )
+        # slide the window along the sequence and accumulate matching patterns.Note that unlike
+        # the above regexp based search, this would count multiple instances of a pattern
+        # that overlap - for example in TTTTTTT , the pattern TTTTTT would count twice.
+        # found_patterns is used to emulate the regexp behaviour 
+        strseq = str(sequence.seq)
+        kmer_dict = {}
+        found_patterns = pattern_window_length * [""]        
+        kmer_iter = (strseq[i:i+pattern_window_length] for i in range(0,1+len(strseq)-pattern_window_length))
+        for kmer in kmer_iter:
+            if kmer not in found_patterns:
+                found_patterns.insert(0,kmer)
+            elif found_patterns[-1] == kmer:
+                found_patterns.insert(0,kmer)
+            else:
+                found_patterns.insert(0,"")
+            found_patterns.pop()
 
+            if kmer not in found_patterns[1:]:
+                kmer_dict[kmer] = 1 + kmer_dict.setdefault(kmer,0)
+                
+        kmer_count_iter = ( (kmer_dict[kmer], kmer) for kmer in kmer_dict )
+        
+        
     return kmer_count_iter
 
 
@@ -55,7 +81,7 @@ def seq_from_sequence_file(datafile, *args):
     return seq_iter
 
 
-def build_kmer_distribution(datafile, kmer_patterns, sampling_proportion, num_processes, builddir, reverse_complement):
+def build_kmer_distribution(datafile, kmer_patterns, sampling_proportion, num_processes, builddir, reverse_complement, pattern_window_length):
 
     if os.path.exists(get_save_filename(datafile, builddir)):
         print("build_kmer_distribution- skipping %s as already done"%datafile)
@@ -70,7 +96,7 @@ def build_kmer_distribution(datafile, kmer_patterns, sampling_proportion, num_pr
         distob.file_to_stream_func = seq_from_sequence_file
         distob.file_to_stream_func_xargs = [filetype,sampling_proportion]
         distob.weight_value_provider_func = kmer_count_from_sequence
-        distob.weight_value_provider_func_xargs = [reverse_complement] + kmer_patterns
+        distob.weight_value_provider_func_xargs = [reverse_complement, pattern_window_length] + kmer_patterns
         
         #distdata = build(distob, use="singlethread")
         distdata = build(distob, proc_pool_size=num_processes)
@@ -111,7 +137,7 @@ def build_kmer_distributions(options):
     distribution_names = []
     for file_name in options["file_names"]:
         distribution_names.append(build_kmer_distribution(file_name, get_patterns(options), options["sampling_proportion"], \
-                                                          options["num_processes"], options["builddir"], options["reverse_complement"]))
+                                                          options["num_processes"], options["builddir"], options["reverse_complement"], options["kmer_size"]))
 
     return distribution_names
 
@@ -119,28 +145,59 @@ def build_kmer_distributions(options):
 def summarise_distributions(distributions, options):
 
     measure = "frequency"
-    if options["summary_type"] == "entropy":
+    if options["summary_type"] in ["zipfian","entropy"]:
         measure = "unsigned_information"
 
     kmer_intervals = Distribution.get_intervals(distributions, options["num_processes"])
 
     print "summarising %s , %s across %s"%(measure, str(kmer_intervals), str(distributions))
 
-
     sample_measures = Distribution.get_projections(distributions, kmer_intervals, measure, False, options["num_processes"])
     zsample_measures = itertools.izip(*sample_measures)
     sample_name_iter = [tuple([os.path.splitext(os.path.basename(distribution))[0] for distribution in distributions])]
     zsample_measures = itertools.chain(sample_name_iter, zsample_measures)
     interval_name_iter = itertools.chain([("kmer_pattern")],kmer_intervals)
-    zsample_measures_with_rownames = itertools.izip(interval_name_iter, zsample_measures)
-        
-        
+    
     outfile=open(options["output_filename"], "w")
 
-    for interval_measure in zsample_measures_with_rownames:
-        print >> outfile, "%s\t%s"%("%s"%interval_measure[0], string.join((str(item) for item in interval_measure[1]),"\t"))
-    outfile.close()
-    
+    if options["summary_type"] in ["entropy", "frequency"]:
+        zsample_measures_with_rownames = itertools.izip(interval_name_iter, zsample_measures)
+        for interval_measure in zsample_measures_with_rownames:
+            print >> outfile, "%s\t%s"%("%s"%interval_measure[0], string.join((str(item) for item in interval_measure[1]),"\t"))
+        outfile.close()
+    elif options["summary_type"] in ["ranks", "zipfian"]:
+        # duplicate interval_name_iter - needed 3 times
+        interval_name_iter_dup = itertools.tee(interval_name_iter, 3)
+
+        # triplicate zsample_measures (0 used to get ranks; 1 used to output measures; 3 used to get distances)
+        zsample_measures_dup = itertools.tee(zsample_measures,3)
+        ranks = Distribution.get_rank_iter(zsample_measures_dup[0])
+
+        # duplicate ranks (0 used to output; 1 used to get distances)
+        ranks_dup = itertools.tee(ranks, 2)
+        ranks_with_rownames = itertools.izip(interval_name_iter_dup[0], ranks_dup[0])
+
+        # output ranks
+        print >> outfile , "*** ranks *** :"
+        for interval_rank in ranks_with_rownames:
+            print >> outfile, "%s\t%s"%("%s"%interval_rank[0], string.join((str(item) for item in interval_rank[1]),"\t"))
+
+        # output measures
+        print >> outfile , "*** entropies *** :"
+        zsample_measures_with_rownames = itertools.izip(interval_name_iter_dup[1], zsample_measures_dup[1])
+        for interval_measure in zsample_measures_with_rownames:
+            print >> outfile, "%s\t%s"%("%s"%interval_measure[0], string.join((str(item) for item in interval_measure[1]),"\t"))
+
+        # get distances
+        print >> outfile , "*** distances *** :"
+        (distance_matrix, point_names_sorted) = Distribution.get_zipfian_distance_matrix(zsample_measures_dup[2], ranks_dup[1])
+        Distribution.print_distance_matrix(distance_matrix, point_names_sorted, outfile)
+    else:
+        print "warning, unknown summary type %(summary_type)s, no summary available"%options
+        
+        
+        outfile.close()
+
 
 def get_options():
     description = """
@@ -183,8 +240,8 @@ kmer_entropy.py -t entropy -k 6 -p 20  /data/project2/*.fastq.gz /references/ref
     """
     parser = argparse.ArgumentParser(description=description, epilog=long_description, formatter_class = argparse.RawDescriptionHelpFormatter)
     parser.add_argument('file_names', type=str, nargs='+',metavar="filename", help='list of files to summarise')
-    parser.add_argument('-t', '--summary_type' , dest='summary_type', default="frequency", choices=["frequency", "entropy"],help="type of summary")
-    parser.add_argument('-k', '--kmer_size' , dest='kmer_size', default=6, type=int, help="kmer size (default 6)")
+    parser.add_argument('-t', '--summary_type' , dest='summary_type', default="frequency", choices=["frequency", "entropy", "ranks", "zipfian"],help="type of summary")
+    parser.add_argument('-k', '--kmer_size' , dest='kmer_size', default=None, type=int, help="kmer size (default None)")
     parser.add_argument('-r', '--kmer_regexp_list' , dest='kmer_regexps', default=None, type=str, help="list of regular expressions (not currently supported)")
     parser.add_argument('-b', '--build_dir' , dest='builddir', default=".", type=str, help="build folder (default '.')")
     parser.add_argument('-p', '--num_processes' , dest='num_processes', default=4, type=int, help="number of processes to start (default 4)")
@@ -199,11 +256,17 @@ kmer_entropy.py -t entropy -k 6 -p 20  /data/project2/*.fastq.gz /references/ref
     # checks
     if args["num_processes"] < 1 or args["num_processes"] > PROC_POOL_SIZE:
         parser.error("num_processes must be between 1 and %d"%PROC_POOL_SIZE)
+
+    # should specify either a kmer_size, or a list of patterns (but not both)
+    if args["kmer_size"] is None and args["kmer_regexps"] is None:
+        parser.error("should specify either kmer_size or a list of patterns")
+    elif args["kmer_size"] is not None and args["kmer_regexps"] is not None:
+        parser.error("should specify either kmer_size or a list of patterns but not both")
         
     # either input file or distribution file should exist 
     for file_name in args["file_names"]:
         if not os.path.isfile(file_name) and not os.path.exists(get_save_filename(file_name, args["builddir"])):
-            parser.error("couldnot find either %s or %s"%(file_name,get_save_filename(file_name, args["builddir"])))
+            parser.error("could not find either %s or %s"%(file_name,get_save_filename(file_name, args["builddir"])))
         break
 
     # output file should not already exist
