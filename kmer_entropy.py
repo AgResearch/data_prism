@@ -116,11 +116,6 @@ def use_kmer_prbdf(picklefile):
 def get_save_filename(input_filename, builddir):
     return os.path.join(builddir,"%s.kmerdist.pickle"%(os.path.basename(input_filename)))
 
-def get_patterns(options):
-    patterns = options["kmer_regexps"]
-    if options["kmer_regexps"] is None:
-        patterns = [''.join(ktuple) for ktuple in list(itertools.product(*options["kmer_size"]*['ACGT']))]
-    return patterns
 
 def get_reverse_complement(kmer):
     kmer=kmer.upper()
@@ -136,7 +131,7 @@ def build_kmer_distributions(options):
         
     distribution_names = []
     for file_name in options["file_names"]:
-        distribution_names.append(build_kmer_distribution(file_name, get_patterns(options), options["sampling_proportion"], \
+        distribution_names.append(build_kmer_distribution(file_name, options["kmer_regexps"], options["sampling_proportion"], \
                                                           options["num_processes"], options["builddir"], options["reverse_complement"], options["kmer_size"]))
 
     return distribution_names
@@ -150,7 +145,9 @@ def summarise_distributions(distributions, options):
 
     kmer_intervals = Distribution.get_intervals(distributions, options["num_processes"])
 
-    print "summarising %s , %s across %s"%(measure, str(kmer_intervals), str(distributions))
+    #print "summarising %s , %s across %s"%(measure, str(kmer_intervals), str(distributions))
+    print "summarising %s , %d kmers across %s"%(measure, len(kmer_intervals), str(distributions))
+
 
     sample_measures = Distribution.get_projections(distributions, kmer_intervals, measure, False, options["num_processes"])
     zsample_measures = itertools.izip(*sample_measures)
@@ -272,6 +269,13 @@ kmer_entropy.py -t entropy -k 6 -p 20  /data/project2/*.fastq.gz /references/ref
     # output file should not already exist
     if os.path.exists(args["output_filename"]):
         parser.error("error output file %(output_filename)s already exists"%args)
+
+
+    # parse kmer_regexps
+    if args["kmer_regexps"] is not None:
+        args["kmer_regexps"] = re.split("\s*,\s*", args["kmer_regexps"])
+    else:
+        args["kmer_regexps"]= []
     
         
     return args

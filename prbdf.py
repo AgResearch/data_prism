@@ -696,12 +696,12 @@ def get_file_type(file_name):
     """
     infer  file type from file name for some commons file formats.
     """
-    if re.search("(\.fasta|\.fa|\.seq)(\.|$)", file_name, re.I) != None:
+    if re.search("(\.fasta|\.fa|\.fna|\.faa|\.seq)(\.|$)", file_name, re.I) != None:
         return "fasta"
     elif re.search("(\.fastq|\.fq)(\.|$)", file_name, re.I) != None:
         return "fastq"
     else:
-        return "?"
+        return "? prbdf - %s : unknown file type "%file_name
     
 
 def get_text_stream(file_name):
