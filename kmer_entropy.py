@@ -43,21 +43,21 @@ def kmer_count_from_sequence(sequence, *args):
         # slide the window along the sequence and accumulate matching patterns.Note that unlike
         # the above regexp based search, this would count multiple instances of a pattern
         # that overlap - for example in TTTTTTT , the pattern TTTTTT would count twice.
-        # found_patterns is used to emulate the regexp behaviour 
+        # overlap_patterns is used to emulate the regexp behaviour 
         strseq = str(sequence.seq)
         kmer_dict = {}
-        found_patterns = pattern_window_length * [""]        
+        overlap_patterns = pattern_window_length * [""]        
         kmer_iter = (strseq[i:i+pattern_window_length] for i in range(0,1+len(strseq)-pattern_window_length))
         for kmer in kmer_iter:
-            if kmer not in found_patterns:
-                found_patterns.insert(0,kmer)
-            elif found_patterns[-1] == kmer:
-                found_patterns.insert(0,kmer)
+            if kmer not in overlap_patterns:
+                overlap_patterns.insert(0,kmer)
+            elif overlap_patterns[-1] == kmer:
+                overlap_patterns.insert(0,kmer)
             else:
-                found_patterns.insert(0,"")
-            found_patterns.pop()
+                overlap_patterns.insert(0,"")
+            overlap_patterns.pop()
 
-            if kmer not in found_patterns[1:]:
+            if kmer not in overlap_patterns[1:]:
                 kmer_dict[kmer] = 1 + kmer_dict.setdefault(kmer,0)
                 
         kmer_count_iter = ( (kmer_dict[kmer], kmer) for kmer in kmer_dict )
