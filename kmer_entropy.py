@@ -4,12 +4,21 @@ import os
 import re
 import itertools
 import string
+import exceptions 
 from random import random
 from multiprocessing import Pool
+import subprocess
 import argparse
 from prbdf import Distribution , build, bin_discrete_value, get_text_stream , get_file_type,  PROC_POOL_SIZE
 
 
+class kmer_entropy_exception(exceptions.Exception):
+    def __init__(self,args=None):
+        super(kmer_entropy_exception, self).__init__(args)
+
+#********************************************************************
+# methods for getting kmer counts from sequence files
+#********************************************************************
 
 def kmer_count_from_sequence(sequence, *args):
     """
@@ -24,7 +33,8 @@ def kmer_count_from_sequence(sequence, *args):
 
     reverse_complement = args[0]
     pattern_window_length = args[1]  # optional - for fixed length patterns e.g. 6-mers etc, to speed up search
-    patterns = args[2:]
+    weight = args[2] # un-used currently 
+    patterns = args[3:]
 
     #print "DEBUG sequence%s"%str(sequence)
     #print "DEBUG reverse_complement%s"%str(reverse_complement)
@@ -81,12 +91,147 @@ def seq_from_sequence_file(datafile, *args):
     return seq_iter
 
 
-def build_kmer_distribution(datafile, kmer_patterns, sampling_proportion, num_processes, builddir, reverse_complement, pattern_window_length):
+#********************************************************************
+# methods for getting kmer counts from tag count files 
+#********************************************************************
+def tag_count_from_tag_count_file(datafile, *args):
+    """
+    yields either all or a random sample of tag counts  from a tassel tag count file.
+    This method trims each tag sequence , to remove the poly-A padding added by tassel and
+    optionally any common prefix
+    It returns an iterator over tuples like (tag , count).
+
+    The tag count file contains records like
+TGCAGAAGTCTTGAATTTAATTCAGGATACTCGTCTACCACGTTGTCCATGTCTCCGCAAGGGA        64      1
+TGCAGAAGTCTTGAATTTAGTTCAGGATACTCGTCTACCACGTTGTCCATGTCTCCGCAAAGGA        64      1
+TGCAGAAGTCTTGGCCTGAGGAGCTGAGTTGTGCATCACCCTGCAAAAAAAAAAAAAAAAAAAA        45      3
+TGCAGAAGTCTTGGTGATGTTGTAAAGGTGTGTTGATGTCTCTGTGGTTGAGGACACATCATCA        64      3
+
+- the first number indicates how much of the tag to keep , the second number
+indicates how many of that tag there are
+
+    """
+    (input_driver_config, sampling_proportion) = args[0:2]
+
+    if input_driver_config is None:
+        raise kmer_entropy_exception("""
+must supply input driver config for .cnt files. This consists of the name of a
+script which lists the contents of the tile in text. Example code using tassel3 and bash shell:
+mkfifo f1
+nohup run_pipeline.pl -fork1 -BinaryToTextPlugin  -i $infile -o f1 -t TagCounts -endPlugin -runfork1 >$errfile 2>&1 &
+cat <$f1
+""")
+    else:
+        remove_prefix=True  # hard coded true for now but may pass in as part of drive config at some point
+        common_prefix=""
+        cat_tag_count_command = [input_driver_config, datafile]
+
+
+        # if we are to remove a common prefix (e.g. TGCA in the above example), then
+        # scan the tags to identify the prefix
+        if remove_prefix:
+            print "scanning tags for a common prefix to remove..."
+
+            proc = subprocess.Popen(cat_tag_count_command, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+            (stdout, stderr) = proc.communicate()
+            if proc.returncode == 0:
+                tuple_iter = (re.split("\s+",record.strip().upper()) for record in re.split("\n", stdout))    # parse the 3 elements 
+                tuple_iter = ((my_tuple[0], int(my_tuple[1]), int(my_tuple[2]))  for my_tuple in tuple_iter if len(my_tuple) == 3)  # skip the header and make ints
+                tuple_iter = (my_tuple[0][0:my_tuple[1]] for my_tuple in tuple_iter)  # use the tag-length to substring the tag then throw away the numbers
+                sorted_tuples = sorted(tuple_iter)
+                # find the longest common start-string in the first and last elements
+                common_prefix_length = 0
+                match = True
+                while( common_prefix_length < min(len(sorted_tuples[0]), len(sorted_tuples[-1])) ):
+                    # try length + 1
+                    if sorted_tuples[0][0:common_prefix_length+1] == sorted_tuples[-1][0:common_prefix_length+1]:
+                        common_prefix_length += 1
+                    else:
+                        break
+            else:
+                raise kmer_entropy_exception("Error encountered running %s"%" ".join(cat_tag_count_command))
+
+            if common_prefix_length > 0 :
+                common_prefix = sorted_tuples[0][0:common_prefix_length]
+                print "found common prefix %s - will exclude from analysis"%common_prefix
+            else:
+                print "(no common prefix found)"
+
+        print "summarising tags..."
+        proc = subprocess.Popen(cat_tag_count_command, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        (stdout, stderr) = proc.communicate()
+        if proc.returncode == 0:
+            tagcount_iter = (re.split("\s+",record.strip().upper()) for record in re.split("\n", stdout))    # parse the 3 elements 
+            tagcount_iter = ((my_tuple[0], int(my_tuple[1]), int(my_tuple[2]))  for my_tuple in tagcount_iter if len(my_tuple) == 3)  # skip the header and make ints
+            tagcount_iter = ( (my_tuple[0][common_prefix_length:my_tuple[1]], my_tuple[2]) for my_tuple in tagcount_iter)  # use the tag-length to substring the tag, also remove common prefix, and throw away tag length
+            #for record in tagcount_iter:
+            #    print "DEBUG %s"%str(record)
+            #    sys.exit(1)
+                
+            
+        else:
+            raise kmer_entropy_exception("Error encountered running %s"%" ".join(cat_tag_count_command))
+        
+    return tagcount_iter
+
+def kmer_count_from_tag_count(tag_count_tuple, *args):
+    """
+    yields an interator through counts of kmers in a tag - but multiplied
+    up by the tag count.
+    """
+    reverse_complement = args[0]
+    pattern_window_length = args[1]  # optional - for fixed length patterns e.g. 6-mers etc, to speed up search
+    weight = args[2]  # un-used currently
+    patterns = args[3:]
+    (tag,tag_count) = tag_count_tuple
+
+    #print "DEBUG args, tag count%s"%str(args, tag_count_tuple)
+
+    if pattern_window_length is None:
+        # search for each pattern. Note that this does not count multiple instances 
+        # of a pattern that overlap - for example in TTTTTTT , the pattern TTTTTT will only count once. 
+        kmer_iters = tuple((re.finditer(pattern, tag, re.I) for pattern in patterns))
+        kmer_iters = (match.group() for match in itertools.chain(*kmer_iters))
+        if not reverse_complement:
+            kmer_count_iter = ( ( len(list(kmer_iter)),kmer) for (kmer,kmer_iter) in itertools.groupby(kmer_iters, lambda kmer:kmer) )
+        else:
+            kmer_count_iter = ( ( len(list(kmer_iter)),get_reverse_complement(kmer)) for (kmer,kmer_iter) in itertools.groupby(kmer_iters, lambda kmer:kmer) )
+    else:
+        # slide the window along the sequence and accumulate matching patterns.Note that unlike
+        # the above regexp based search, this would count multiple instances of a pattern
+        # that overlap - for example in TTTTTTT , the pattern TTTTTT would count twice.
+        # overlap_patterns is used to emulate the regexp behaviour 
+        strseq = tag
+        kmer_dict = {}
+        overlap_patterns = pattern_window_length * [""]        
+        kmer_iter = (strseq[i:i+pattern_window_length] for i in range(0,1+len(strseq)-pattern_window_length))
+        for kmer in kmer_iter:
+            if kmer not in overlap_patterns:
+                overlap_patterns.insert(0,kmer)
+            elif overlap_patterns[-1] == kmer:
+                overlap_patterns.insert(0,kmer)
+            else:
+                overlap_patterns.insert(0,"")
+            overlap_patterns.pop()
+
+            if kmer not in overlap_patterns[1:]:
+                kmer_dict[kmer] = 1 + kmer_dict.setdefault(kmer,0)
+                
+        kmer_count_iter = ( (tag_count * kmer_dict[kmer], kmer) for kmer in kmer_dict )
+        
+        
+    return kmer_count_iter
+
+#********************************************************************
+# general analysis / summary methods 
+#********************************************************************
+def build_kmer_distribution(datafile, kmer_patterns, sampling_proportion, num_processes, builddir, reverse_complement, pattern_window_length, input_driver_config):
 
     if os.path.exists(get_save_filename(datafile, builddir)):
         print("build_kmer_distribution- skipping %s as already done"%datafile)
         distob = Distribution.load(get_save_filename(datafile, builddir))
         distob.summary()
+        
     else:
         filetype = get_file_type(datafile)
         distob = Distribution([datafile], num_processes)
@@ -96,8 +241,14 @@ def build_kmer_distribution(datafile, kmer_patterns, sampling_proportion, num_pr
         distob.file_to_stream_func = seq_from_sequence_file
         distob.file_to_stream_func_xargs = [filetype,sampling_proportion]
         distob.weight_value_provider_func = kmer_count_from_sequence
-        distob.weight_value_provider_func_xargs = [reverse_complement, pattern_window_length] + kmer_patterns
+        distob.weight_value_provider_func_xargs = [reverse_complement, pattern_window_length, 1] + kmer_patterns        
         
+        if filetype == ".cnt":
+            print "DEBUG setting methods for count file"
+            distob.file_to_stream_func = tag_count_from_tag_count_file
+            distob.file_to_stream_func_xargs = [input_driver_config,sampling_proportion]
+            distob.weight_value_provider_func = kmer_count_from_tag_count
+            
         #distdata = build(distob, use="singlethread")
         distdata = build(distob, proc_pool_size=num_processes)
         distob.save(get_save_filename(datafile, builddir))
@@ -132,7 +283,8 @@ def build_kmer_distributions(options):
     distribution_names = []
     for file_name in options["file_names"]:
         distribution_names.append(build_kmer_distribution(file_name, options["kmer_regexps"], options["sampling_proportion"], \
-                                                          options["num_processes"], options["builddir"], options["reverse_complement"], options["kmer_size"]))
+                                                          options["num_processes"], options["builddir"], options["reverse_complement"], \
+                                                          options["kmer_size"], options["input_driver_config"]))
 
     return distribution_names
 
@@ -223,7 +375,7 @@ examples :
 # make a table summarising base composition of all files with .fa suffix in current folder
 kmer_entropy.py -t frequency -k 1 ./*.fa
 
-# make a table summarising 6-mer entropy for all fastq files in /data/project2
+# make a table summarising 6-mer self-information for all fastq files in /data/project2
 # , based on a random sample of 1/1000 seqs, split over 20 processes
 kmer_entropy.py -t entropy -k 6 -p 20 -s .001 /data/project2/*.fastq.gz
 
@@ -232,7 +384,17 @@ kmer_entropy.py -t entropy -k 6 -p 20 -s .001 /data/project2/*.fastq.gz
 # have to analyse the kmer distribution for the two new files listed. The two new files will not
 # be randomly sampled (no -s option specified), however for the existing files the cached results are
 # based on a random sample.  
-kmer_entropy.py -t entropy -k 6 -p 20  /data/project2/*.fastq.gz /references/ref1.fa /references/ref2.fa 
+kmer_entropy.py -t entropy -k 6 -p 20  /data/project2/*.fastq.gz /references/ref1.fa /references/ref2.fa
+
+# obtain a text file containing self-information and ranks for 6-mers in a tag count file
+./kmer_entropy.py -t zipfian -k 6 -p 1 -o tag_zipfian.txt -x /dataset/hiseq/active/bin/hiseq_pipeline/cat_tag_count.sh /dataset/hiseq/scratch/postprocessing/151016_D00390_0236_AC6JURANXX.gbs/SQ0124.processed_sample/uneak/tagCounts/G88687_C6JURANXX_1_124_X4.cnt
+
+# as above but feeed in tag count data from a text file, use "cat" to list it (but need .cnt suffix so
+# program expects the stream to contain tag counts
+./kmer_entropy.py -t frequency -k 6 -p 1 -o test_freqs.txt -x cat tagtestdata_as_text.cnt
+
+
+
                                                                             
     """
     parser = argparse.ArgumentParser(description=description, epilog=long_description, formatter_class = argparse.RawDescriptionHelpFormatter)
@@ -244,7 +406,8 @@ kmer_entropy.py -t entropy -k 6 -p 20  /data/project2/*.fastq.gz /references/ref
     parser.add_argument('-p', '--num_processes' , dest='num_processes', default=4, type=int, help="number of processes to start (default 4)")
     parser.add_argument('-s', '--sampling_proportion' , dest='sampling_proportion', default=None, type=float, help="proportion of sequence records to sample (default None means process all records)")
     parser.add_argument('-o', '--output_filename' , dest='output_filename', default="distributions.txt", type=str, help="name of the output file to contain table of kmer distribution summaries for each input file (default 'distributions.txt')")
-    parser.add_argument('-c', '--reverse_complement' , dest='reverse_complement', action='store_true', help="for each kmer tabulate the frequency or entropy of its reverse complement (default False)")    
+    parser.add_argument('-c', '--reverse_complement' , dest='reverse_complement', action='store_true', help="for each kmer tabulate the frequency or entropy of its reverse complement (default False)")
+    parser.add_argument('-x', '--input_driver_config' , dest='input_driver_config', default=None, help="this is use to configure input from custom file formats such as tassel count files")    
 
     
     

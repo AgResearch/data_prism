@@ -694,14 +694,16 @@ def default_weight_value_provider(point, *xargs):
 
 def get_file_type(file_name):
     """
-    infer  file type from file name for some commons file formats.
+    infer  file type from file name for some common file formats, and return a canonical
+    type name. For other file formats, just return the suffix (e.g.
+    foo.bar and foo.BAR would both return .bar in that case)
     """
     if re.search("(\.fasta|\.fa|\.fna|\.faa|\.seq)(\.|$)", file_name, re.I) != None:
         return "fasta"
     elif re.search("(\.fastq|\.fq)(\.|$)", file_name, re.I) != None:
         return "fastq"
     else:
-        return "? prbdf - %s : unknown file type "%file_name
+        return os.path.splitext(file_name)[1].lower()
     
 
 def get_text_stream(file_name):
