@@ -124,7 +124,7 @@ cat <$f1
     else:
         remove_prefix=True  # hard coded true for now but may pass in as part of drive config at some point
         common_prefix=""
-        cat_tag_count_command = [input_driver_config, datafile]
+        cat_tag_count_command = [input_driver_config, "%s"%datafile]
 
 
         # if we are to remove a common prefix (e.g. TGCA in the above example), then
@@ -149,7 +149,7 @@ cat <$f1
                     else:
                         break
             else:
-                raise kmer_entropy_exception("Error encountered running %s"%" ".join(cat_tag_count_command))
+                raise kmer_entropy_exception("Error encountered running %s - return code was %s, stderr:%s stdout:%s"%(" ".join(cat_tag_count_command),proc.returncode,stderr,stdout))
 
             if common_prefix_length > 0 :
                 common_prefix = sorted_tuples[0][0:common_prefix_length]
@@ -265,7 +265,8 @@ def use_kmer_prbdf(picklefile):
         print interval, freq
 
 def get_save_filename(input_filename, builddir):
-    return os.path.join(builddir,"%s.kmerdist.pickle"%(os.path.basename(input_filename)))
+    sanitised_input_filename = re.sub("[\s\$]","_", input_filename)
+    return os.path.join(builddir,"%s.kmerdist.pickle"%(os.path.basename(sanitised_input_filename)))
 
 
 def get_reverse_complement(kmer):
