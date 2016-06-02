@@ -277,9 +277,14 @@ draw_comparison_plot <- function(datalist, output_folder, comparison_plot_image_
       comparison_columns = sequence(ncol(datalist$entropy_data))
    }
 
+   if (length(comparison_columns) == 0) {
+      comparison_columns = sequence(ncol(datalist$entropy_data))
+   }
+
    log_rank_subset=datalist$log_rank_data[,comparison_columns[1]]
    entropy_subset=datalist$entropy_data[,comparison_columns[1]]
-   if(length(comparison_columns) > 1) {
+
+   if (length(comparison_columns) > 1) {
       for(column_number in comparison_columns[2:length(comparison_columns)]) {
          entropy_subset=cbind(entropy_subset, datalist$entropy_data[,column_number])
          log_rank_subset = cbind(log_rank_subset, datalist$log_rank_data[,column_number])
@@ -287,11 +292,18 @@ draw_comparison_plot <- function(datalist, output_folder, comparison_plot_image_
    }
 
    jpeg(filename = comparison_plot_image_file, 800,800)
-   if (length(comparison_columns) < 30) {
+   if (length(comparison_columns) < 30 ) {
       plot(log_rank_subset, entropy_subset, pch='.')
-      usr <- par( "usr" )
+
+      xmin <- par("usr")[1]
+      xmax <- par("usr")[2]
+      ymin <- par("usr")[3]
+      ymax <- par("usr")[4]
+      delta_y=(ymax-ymin)/40.0
+      delta_x=(xmax-xmin)/5
+
       for(column_number in sequence(length(comparison_columns))) {
-         text( usr[ 1 ] +.5 , usr[ 4 ] - 0.25 * (1+column_number), colnames(datalist$entropy_data)[comparison_columns[column_number]], adj = c( 0, 1 ))
+         text( xmin + delta_x , ymax - delta_y * (1+column_number), colnames(datalist$entropy_data)[comparison_columns[column_number]], adj = c( 0, 1 ))
       }
    }
    else {
@@ -300,7 +312,6 @@ draw_comparison_plot <- function(datalist, output_folder, comparison_plot_image_
    }
    dev.off()
 }
-
 
 draw_distances_plot <- function(datalist, output_folder, distances_plot_image_file, comparison_columns_patterns,  number_of_column_labels) {
    # the distance matrix (i.e. distances between each pair of zipfian plots)
