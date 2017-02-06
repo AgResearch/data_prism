@@ -6,27 +6,18 @@
 # then your input file would be zipfian.txt
 # 
 # The general idea is a "10,000 ft view" of sequence data, based on k-mer frequencies
-
- 
-# http://www.inside-r.org/packages/cran/gplots/docs/heatmap.2
-# http://stackoverflow.com/questions/21427863/how-to-add-more-margin-to-a-heatmap-2-plot-with-the-png-device
-# http://stackoverflow.com/questions/4629115/an-algorithm-for-filtering-text-files
-# http://www.statmethods.net/advgraphs/layout.html
-# http://stackoverflow.com/questions/2192316/extract-a-regular-expression-match-in-r-version-2-10/2192732#2192732
 #-------------------------------------------------------------------------
-
-# libraries
-.libPaths("M:/Documents/projects/tangential/Rlib")
 library(Heatplus)
 library(RColorBrewer)
-library("gplots")
+library(gplots)
+
 
 ###################################################################################
 # edit these variables - the values given are just examples                       #
 ###################################################################################
-data_folder="m:/Documents/projects/anlaysis"     
-output_folder="m:/Documents/projects/anlaysis"   
-input_file="zipfian.txt"                                                         
+#data_folder="M:/Documents/projects/tangential/tgdata/kmers_gbs"     
+#output_folder="M:/Documents/projects/tangential/tgdata/kmers_gbs" 
+input_file="kmer_summary.txt"                                                         
 
 #....thats all you need to cxhange to start with. More options : 
 
@@ -59,6 +50,7 @@ zipfian_plot_image_file="kmer_zipfian.jpg"
 #zipfian_plot_comparisons=c("1128_S28")
 #zipfian_plot_comparisons=c("19_8Kb_1","reads19_1.*")                     
 #zipfian_plot_comparisons=c("X3.*", "X4.*", "X5.*")                                
+#zipfian_plot_comparisons=c("GA194_B53_C9CHFANXX_7_2554_X4.cnt","GA194_B40_C9CHFANXX_7_2554_X4.cnt")                                
 #zipfian_plot_comparisons=c("SQ2530","SQ2531","SQ2533","SQ2534","SQ2535","SQ2536","SQ2537","SQ2538","SQ2539","SQ2540","SQ2541","SQ2515","SQ2516","SQ2517","SQ2518")
 zipfian_plot_comparisons=NULL
 
@@ -67,6 +59,31 @@ zipfian_plot_comparisons=NULL
 comparison_plot_image_file="kmer_zipfian_comparisons.jpg"                         
 distances_plot_image_file="zipfian_distances.jpg"                                 
 ################## End of options. Remaining just code ################################
+
+
+get_command_args <- function() {
+   args=(commandArgs(TRUE))
+   if(length(args)!=1 ){
+      #quit with error message if wrong number of args supplied
+      print('Usage example : Rscript --vanilla  kmer_plots_gbs.r datafolder=/dataset/hiseq/scratch/postprocessing/160623_D00390_0257_AC9B0MANXX.gbs/SQ2559.processed_sample/uneak/kmer_analysis')
+      print('args received were : ')
+      for (e in args) {
+         print(e)
+      }
+      q()
+   }else{
+      print("Using...")
+      # seperate and parse command-line args
+      for (e in args) {
+         print(e)
+         ta <- strsplit(e,"=",fixed=TRUE)
+         switch(ta[[1]][1],
+            "datafolder" = datafolder <- ta[[1]][2]
+         )
+      }
+   }
+   return(datafolder)
+}
 
 
 custom_parser <- function(field_name) {
@@ -187,7 +204,8 @@ draw_entropy_heatmap <- function(datamatrix, output_folder, heatmap_image_file, 
    row_label_interval=max(1, floor(nrow(datamatrix)/number_of_heatmap_row_labels))  # 1=label every location 2=label every 2nd location  etc 
    col_label_interval=max(1, floor(ncol(datamatrix)/number_of_column_labels))  # 1=label every location 2=label every 2nd location  etc 
 
-   cm<-brewer.pal(9,"BuPu") # sequential
+   #cm<-brewer.pal(9,"BuPu") # sequential
+   cm <-c("#F7FCFD", "#E0ECF4", "#BFD3E6", "#9EBCDA", "#8C96C6", "#8C6BB1", "#88419D", "#810F7C", "#4D004B")
    cm <- rev(cm)
 
    # set up a vector which will index the labels that are to be blanked out so that 
@@ -212,12 +230,11 @@ draw_entropy_heatmap <- function(datamatrix, output_folder, heatmap_image_file, 
 
    # run the heatmap, just to obtain the clustering index - not the final plot
    hm_internal<-heatmap.2(as.matrix(datamatrix),  scale = "none", dendrogram = "col",
-     Colv = TRUE,  
+    Colv = TRUE,  
      trace = "none", breaks = 0 + 15/9*seq(0,9),
-     col = cm , key=TRUE, density.info="none", 
+     col = cm , key=FALSE, density.info="none", 
      keysize=1.0, margin=c(11,20), cexRow=1.5, cexCol=1.5, 
      lmat=rbind(  c(4,3,0 ), c(2, 1, 0) ), lwid=c(.7, 1.7, .6 ), lhei=c(.5, 3) , labRow = rowLabels)
-
 
    dev.off()
 
@@ -239,15 +256,15 @@ draw_entropy_heatmap <- function(datamatrix, output_folder, heatmap_image_file, 
 
    # now do the final plot
    jpeg(filename = heatmap_image_file, width=1300, height=1500) # with dendrograms
-
    hm<-heatmap.2(as.matrix(datamatrix),  scale = "none", dendrogram = "col",
        Colv = TRUE,  
        trace = "none", breaks = min(datamatrix) + (max(datamatrix)-min(datamatrix))/9*seq(0,9), 
-       col = cm , key=TRUE, density.info="none", 
+       col = cm , key=FALSE, density.info="none", 
        keysize=1.0, margin=c(40,60), cexRow=1.3, cexCol=1.3, 
        lmat=rbind(  c(4,3,0 ), c(2, 1, 0) ), lwid=c(.2, .8, 0 ), lhei=c(.5, 3) , labRow = rowLabels, labCol=colLabels)
    dev.off()
 }
+
 
 draw_zipfian_plots <- function(datalist, output_folder, zipfian_plot_image_file, zipfian_plots_per_row) {
    # draws "zipfian" plots for each sample (one plot per sample)
@@ -264,6 +281,7 @@ draw_zipfian_plots <- function(datalist, output_folder, zipfian_plot_image_file,
    }
    dev.off()
 }
+
 
 draw_comparison_plot <- function(datalist, output_folder, comparison_plot_image_file, comparison_columns_patterns) {
    # all / select samples in a single "zipfian" plot
@@ -293,7 +311,7 @@ draw_comparison_plot <- function(datalist, output_folder, comparison_plot_image_
 
    jpeg(filename = comparison_plot_image_file, 800,800)
    if (length(comparison_columns) < 30 ) {
-      plot(log_rank_subset, entropy_subset, pch='.')
+      plot(log_rank_subset, entropy_subset, pch='.', xlim=c(0,12), ylim=c(8,14))
 
       xmin <- par("usr")[1]
       xmax <- par("usr")[2]
@@ -307,11 +325,12 @@ draw_comparison_plot <- function(datalist, output_folder, comparison_plot_image_
       }
    }
    else {
-      plot(log_rank_subset, entropy_subset, pch='.')
+      plot(log_rank_subset, entropy_subset, pch='.', xlim=c(0,12), ylim=c(8,14))
       title(main=paste( colnames(datalist$entropy_data)[1] , "....etc"))
    }
    dev.off()
 }
+
 
 draw_distances_plot <- function(datalist, output_folder, distances_plot_image_file, comparison_columns_patterns,  number_of_column_labels) {
    # the distance matrix (i.e. distances between each pair of zipfian plots)
@@ -319,7 +338,7 @@ draw_distances_plot <- function(datalist, output_folder, distances_plot_image_fi
    # - look for groups and outliers
    fit <- cmdscale(datalist$distance_data,eig=TRUE, k=2)
    jpeg(filename = distances_plot_image_file, 800,800)
-   plot(fit$points, cex=0.7)
+   smoothScatter(fit$points, cex=0.7)
 
    # now work out which ones to label - its a union of all of the "comparison_columns", and 
    # every "n'th" column , as determined by (number of columns / number_of_column_labels)
@@ -343,6 +362,8 @@ draw_distances_plot <- function(datalist, output_folder, distances_plot_image_fi
 }
 
 main <- function() {
+   data_folder <- get_command_args()
+   output_folder <- data_folder
    mydata <- get_data(data_folder, input_file, colname_pattern)
    draw_entropy_heatmap(mydata$entropy_data, output_folder, heatmap_image_file, number_of_heatmap_row_labels, number_of_column_labels)
    draw_zipfian_plots(mydata, output_folder, zipfian_plot_image_file, zipfian_plots_per_row) 

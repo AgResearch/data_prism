@@ -752,10 +752,63 @@ def from_csv_file(file_name, *xargs):
         return csv.reader(get_text_stream(file_name))
     else:
         return (tuple([outer_list(record)[index] for index in xargs])  for record in csv.reader(get_text_stream(file_name)))
+
+
+def kmer_count_from_sequence(sequence, *args):
+    """
+    yields an interator through counts of kmers in a sequence
+    - e.g.
+    3 ACTAT
+    1 AAAAA
+    etc
+    """
+    from Bio import SeqIO
+    import itertools
+
+    reverse_complement = args[0]
+    pattern_window_length = args[1]  # optional - for fixed length patterns e.g. 6-mers etc, to speed up search
+    weight = args[2] # un-used currently 
+    patterns = args[3:]
+
+    #print "DEBUG sequence%s"%str(sequence)
+    #print "DEBUG reverse_complement%s"%str(reverse_complement)
+    #print "DEBUG patterns%s"%str(patterns)
+
+    if pattern_window_length is None:
+        # search for each pattern. Note that this does not count multiple instances 
+        # of a pattern that overlap - for example in TTTTTTT , the pattern TTTTTT will only count once. 
+        kmer_iters = tuple((re.finditer(pattern, str(sequence.seq), re.I) for pattern in patterns))
+        kmer_iters = (match.group() for match in itertools.chain(*kmer_iters))
+        if not reverse_complement:
+            kmer_count_iter = ( ( len(list(kmer_iter)),kmer) for (kmer,kmer_iter) in itertools.groupby(kmer_iters, lambda kmer:kmer) )
+        else:
+            kmer_count_iter = ( ( len(list(kmer_iter)),get_reverse_complement(kmer)) for (kmer,kmer_iter) in itertools.groupby(kmer_iters, lambda kmer:kmer) )
+    else:
+        # slide the window along the sequence and accumulate matching patterns.Note that unlike
+        # the above regexp based search, this would count multiple instances of a pattern
+        # that overlap - for example in TTTTTTT , the pattern TTTTTT would count twice.
+        # overlap_patterns is used to emulate the regexp behaviour 
+        strseq = str(sequence.seq)
+        kmer_dict = {}
+        overlap_patterns = pattern_window_length * [""]        
+        kmer_iter = (strseq[i:i+pattern_window_length] for i in range(0,1+len(strseq)-pattern_window_length))
+        for kmer in kmer_iter:
+            if kmer not in overlap_patterns:
+                overlap_patterns.insert(0,kmer)
+            elif overlap_patterns[-1] == kmer:
+                overlap_patterns.insert(0,kmer)
+            else:
+                overlap_patterns.insert(0,"")
+            overlap_patterns.pop()
+
+            if kmer not in overlap_patterns[1:]:
+                kmer_dict[kmer] = 1 + kmer_dict.setdefault(kmer,0)
+                
+        kmer_count_iter = ( (kmer_dict[kmer], kmer) for kmer in kmer_dict )
         
-
-
-
+        
+    return kmer_count_iter
+        
 
 
 

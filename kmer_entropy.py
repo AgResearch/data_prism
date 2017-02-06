@@ -167,11 +167,10 @@ cat <$f1
             #for record in tagcount_iter:
             #    print "DEBUG %s"%str(record)
             #    sys.exit(1)
-                
-            
         else:
             raise kmer_entropy_exception("Error encountered running %s"%" ".join(cat_tag_count_command))
-        
+
+    #print "DEBUG got tag count iter"
     return tagcount_iter
 
 def kmer_count_from_tag_count(tag_count_tuple, *args):
@@ -233,6 +232,7 @@ def build_kmer_distribution(datafile, kmer_patterns, sampling_proportion, num_pr
         distob.summary()
         
     else:
+        print("build_kmer_distribution- processing %s"%datafile)
         filetype = get_file_type(datafile)
         distob = Distribution([datafile], num_processes)
         distob.interval_locator_parameters = (None,)
@@ -244,13 +244,14 @@ def build_kmer_distribution(datafile, kmer_patterns, sampling_proportion, num_pr
         distob.weight_value_provider_func_xargs = [reverse_complement, pattern_window_length, 1] + kmer_patterns        
         
         if filetype == ".cnt":
-            print "DEBUG setting methods for count file"
+            #print "DEBUG setting methods for count file"
             distob.file_to_stream_func = tag_count_from_tag_count_file
             distob.file_to_stream_func_xargs = [input_driver_config,sampling_proportion]
-            distob.weight_value_provider_func = kmer_count_from_tag_count
+            distob.weight_value_provider_func = kmer_count_from_tag_count 
+            distdata = build(distob, use="singlethread")
+        else:
+            distdata = build(distob, proc_pool_size=num_processes)
             
-        #distdata = build(distob, use="singlethread")
-        distdata = build(distob, proc_pool_size=num_processes)
         distob.save(get_save_filename(datafile, builddir))
             
         print "Distribution %s has %d points distributed over %d intervals, stored in %d parts"%(get_save_filename(datafile, builddir), distob.point_weight, len(distdata), len(distob.part_dict))
