@@ -350,12 +350,21 @@ draw_distances_plot <- function(datalist, output_folder, distances_plot_image_fi
    }
 
    col_label_interval=max(1, floor(ncol(datalist$entropy_data)/number_of_column_labels))  # 1=label every location 2=label every 2nd location  etc 
-   col_label_selector <- sequence(ncol(datalist$entropy_data))
-   col_label_selector <- subset(col_label_selector, col_label_selector %% col_label_interval == 0)
+   #col_label_selector <- sequence(ncol(datalist$entropy_data))
+   #col_label_selector <- subset(col_label_selector, col_label_selector %% col_label_interval == 0)
 
-   col_labels=rep(NULL, ncol(datalist$entropy_data))
-   col_labels[comparison_columns] = colnames(datalist$entropy_data)[comparison_columns]
-   col_labels[col_label_selector] = colnames(datalist$entropy_data)[col_label_selector]
+   #col_labels=rep(NULL, ncol(datalist$entropy_data))
+   #col_labels[comparison_columns] = colnames(datalist$entropy_data)[comparison_columns]
+   #col_labels[col_label_selector] = colnames(datalist$entropy_data)[col_label_selector]
+   col_labels <- as.vector(rownames(fit$points))
+   blank_index <- sequence(length(col_labels))
+   blank_index <- subset(blank_index, ! blank_index %in% comparison_columns)
+   col_labels[blank_index] <- ''
+
+   col_label_eraser <- sequence(length(col_labels))
+   col_label_eraser <- subset(col_label_eraser, ! col_label_eraser %% col_label_interval == 0)
+   col_labels[col_label_eraser] = ''
+
 
    text(fit$points, labels = col_labels, pos = 4, cex=0.8)
    dev.off()
