@@ -299,6 +299,12 @@ def summarise_distributions(distributions, options):
 
     kmer_intervals = Distribution.get_intervals(distributions, options["num_processes"])
 
+    if options["alphabet"] is not None:
+        kmer_intervals1 = [ interval for interval in kmer_intervals if re.search("^[%(alphabet)s]+$"%options , interval[0], re.IGNORECASE) is not None ]
+        print "(restricting kmers to those from alphabet %s , deleted %d / %d kmers)"%(options["alphabet"],len(kmer_intervals) - len(kmer_intervals1) , len(kmer_intervals))
+        kmer_intervals  = kmer_intervals1
+        
+
     #print "summarising %s , %s across %s"%(measure, str(kmer_intervals), str(distributions))
     print "summarising %s , %d kmers across %s"%(measure, len(kmer_intervals), str(distributions))
 
@@ -410,6 +416,7 @@ kmer_entropy.py -t entropy -k 6 -p 20  /data/project2/*.fastq.gz /references/ref
     parser.add_argument('-o', '--output_filename' , dest='output_filename', default="distributions.txt", type=str, help="name of the output file to contain table of kmer distribution summaries for each input file (default 'distributions.txt')")
     parser.add_argument('-c', '--reverse_complement' , dest='reverse_complement', action='store_true', help="for each kmer tabulate the frequency or entropy of its reverse complement (default False)")
     parser.add_argument('-x', '--input_driver_config' , dest='input_driver_config', default=None, help="this is use to configure input from custom file formats such as tassel count files")    
+    parser.add_argument('-a', '--alphabet' , dest='alphabet', default=None, type=str, help="alphabet used to filter kmers when summarising distributions (not applied when building distribution)")
 
     
     

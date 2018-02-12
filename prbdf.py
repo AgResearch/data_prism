@@ -511,16 +511,19 @@ def p_get_information_projection((distribution, points, return_intervals)):
         
     missing_weight = 0
     index = 0
+    total_weight = 0
     for point in points:
+        (weight, interval)= distribution.get_frequency(point,0, True)
         if not return_intervals:
-            projection[index] = distribution.get_frequency(point,0)
+            projection[index] = weight
         else:
-            (projection[index], intervals[index]) = distribution.get_frequency(point,0, True)
+            (projection[index], intervals[index]) = (weight, interval)
             
         if projection[index] == 0:
             missing_weight += 1
             
         index += 1
+        total_weight += weight
 
     missing_weight = float(missing_weight)
 
@@ -531,7 +534,7 @@ def p_get_information_projection((distribution, points, return_intervals)):
         if projection[index] == 0:
             projection[index] = missing_weight
 
-        projection[index] = -1.0 * math.log(projection[index] / float(distribution.point_weight + missing_weight), 2.0)
+        projection[index] = -1.0 * math.log(projection[index] / float(total_weight + missing_weight), 2.0)
 
     if not return_intervals:
         return projection
@@ -543,17 +546,22 @@ def p_get_signed_information_projection((distribution, points, return_intervals)
     projection = len(points) * [None]
     if return_intervals:
         intervals = len(points) * [None]
+        
     missing_weight = 0
     index = 0
+    total_weight = 0
     for point in points:
+        (weight, interval)= distribution.get_frequency(point,0, True)
         if not return_intervals:
-            projection[index] = distribution.get_frequency(point,0)
+            projection[index] = weight
         else:
-            (projection[index], intervals[index]) = distribution.get_frequency(point,0, True)
+            (projection[index], intervals[index]) = (weight, interval)
             
         if projection[index] == 0:
             missing_weight += 1
+            
         index += 1
+        total_weight += weight
 
     missing_weight = float(missing_weight)
 
@@ -570,7 +578,7 @@ def p_get_signed_information_projection((distribution, points, return_intervals)
         if projection[index] == 0:
             projection[index] =  (P / float(1-P) ) * math.log(P,2.0)
         else:
-            projection[index] = -1.0 * math.log(projection[index] / float(distribution.point_weight), 2.0)
+            projection[index] = -1.0 * math.log(projection[index] / total_weight, 2.0)
 
     if not return_intervals:
         return projection
@@ -582,16 +590,22 @@ def p_get_unsigned_information_projection((distribution, points, return_interval
     projection = len(points) * [None]
     if return_intervals:
         intervals = len(points) * [None]
+        
     missing_weight = 0
     index = 0
+    total_weight = 0
     for point in points:
+        (weight, interval)= distribution.get_frequency(point,0, True)
         if not return_intervals:
-            projection[index] = distribution.get_frequency(point,0)
+            projection[index] = weight
         else:
-            (projection[index], intervals[index]) = distribution.get_frequency(point,0, True)
+            (projection[index], intervals[index]) = (weight, interval)
+            
         if projection[index] == 0:
             missing_weight += 1
+            
         index += 1
+        total_weight += weight
 
     missing_weight = float(missing_weight)
 
@@ -602,9 +616,9 @@ def p_get_unsigned_information_projection((distribution, points, return_interval
     # (but do not affect the projection of other points)
     for index in range(len(projection)):
         if projection[index] == 0:
-            projection[index] = -1.0 * math.log(distribution.approximate_zero_frequency / float(distribution.point_weight), 2.0)
+            projection[index] = -1.0 * math.log(distribution.approximate_zero_frequency / float(total_weight), 2.0)
         else:
-            projection[index] = -1.0 * math.log(projection[index] / float(distribution.point_weight), 2.0)
+            projection[index] = -1.0 * math.log(projection[index] / float(total_weight), 2.0)
 
     if not return_intervals:
         return projection
