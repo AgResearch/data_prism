@@ -53,7 +53,7 @@ def tax_cmp(x,y):
         ord = cmp(x[1], y[1])
     return ord
 
-def get_sample_tax_frequency_distribution(sample_tax_summaries):
+def get_sample_tax_distribution(sample_tax_summaries, measure):
     sample_tax_lists = [ Distribution.load(sample_tax_summary).get_distribution().keys() for sample_tax_summary in sample_tax_summaries ] 
     all_taxa = set( reduce(lambda x,y:x+y, sample_tax_lists))
     all_taxa_list = list(all_taxa)
@@ -61,11 +61,16 @@ def get_sample_tax_frequency_distribution(sample_tax_summaries):
 
     #print all_taxa_list
 
-    sample_tax_frequency_distributions = [["%s\t%s"%item for item in all_taxa_list]] + [ Distribution.load(sample_tax_summary).get_frequency_projection(all_taxa_list) for sample_tax_summary in sample_tax_summaries]
+    if measure == "frequency":
+        #sample_tax_distributions = [["%s\t%s"%item for item in all_taxa_list]] + [ Distribution.load(sample_tax_summary).get_frequency_projection(all_taxa_list) for sample_tax_summary in sample_tax_summaries]
+        sample_tax_distributions = [[re.sub("'|#","","%s\t%s"%item) for item in all_taxa_list]] + [ Distribution.load(sample_tax_summary).get_frequency_projection(all_taxa_list) for sample_tax_summary in sample_tax_summaries]
+    else:
+        #sample_tax_distributions = [["%s\t%s"%item for item in all_taxa_list]] + [ Distribution.load(sample_tax_summary).get_unsigned_information_projection(all_taxa_list) for sample_tax_summary in sample_tax_summaries]
+        sample_tax_distributions = [[re.sub("'|#","","%s\t%s"%item) for item in all_taxa_list]] + [ Distribution.load(sample_tax_summary).get_unsigned_information_projection(all_taxa_list) for sample_tax_summary in sample_tax_summaries]
 
-    #print sample_tax_frequency_distributions
+    #print sample_tax_distributions
 
-    fd_iter = itertools.izip(*sample_tax_frequency_distributions)
+    fd_iter = itertools.izip(*sample_tax_distributions)
     heading = itertools.izip(*[["Kingdom\tFamily"]]+[[re.split("\.",os.path.basename(path.strip()))[0]] for path in sample_tax_summaries])
     #print heading
 
@@ -147,6 +152,8 @@ INV-D00390:220:C6GKKANXX:8:1114:18656:89413     gi|688443106|emb|LL194098.1|    
     parser.add_argument('filename', type=str, nargs="*",help='input file of blast hits (optionally compressed with gzip)')    
     parser.add_argument('--summary_type', dest='summary_type', default="sample_summaries", \
                    choices=["sample_summaries", "summary_table"],help="summary type (default: sample_summaries")
+    parser.add_argument('--measure', dest='measure', default="frequency", \
+                   choices=["frequency", "information"],help="measure (default: frequency")
 
 
     args = vars(parser.parse_args())
@@ -157,8 +164,6 @@ INV-D00390:220:C6GKKANXX:8:1114:18656:89413     gi|688443106|emb|LL194098.1|    
 def main():
     args=get_options()
 
-    filename = args["filename"][0]
-    
     #test = my_top_hit_provider(filename, 0,7,6)
     #test = my_hit_provider(filename, 0,7,6)
     #for record in test:
@@ -167,13 +172,13 @@ def main():
     #return
 
     if args["summary_type"] == "sample_summaries" :
-        tax_dist = build_tax_distribution(filename)
-        print tax_dist
-
-        write_summaries(filename,tax_dist)
+        for filename in  args["filename"]:
+            tax_dist = build_tax_distribution(filename)
+            print tax_dist
+            write_summaries(filename,tax_dist)
     elif args["summary_type"] == "summary_table" :
         #print "summarising %s"%str(args["filename"])
-        get_sample_tax_frequency_distribution(args["filename"])
+        get_sample_tax_distribution(args["filename"], args["measure"])
 
     
 
