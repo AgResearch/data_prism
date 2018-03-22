@@ -1,0 +1,7 @@
+gene	regexp 	colour	symbol
+Prolactin (PRL)	(^prl)	FDB462	P
+Selenoprotein (SEP15)	(sep15)	B3DE69	S
+Eukaryotic Translation Elongation Factor (EEF1A1)	(eef1a1)	BEBADA	E
+Keratin (KRT4)	(keratin 4)	FB8072	4
+Keratin (KRT8)	(keratin 8)	80B1D3	8
+Alpha-S1-casein (CSN1S1)	(csn1s1)	8DD3C7	C

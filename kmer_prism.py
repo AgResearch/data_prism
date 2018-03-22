@@ -9,7 +9,7 @@ from random import random
 from multiprocessing import Pool
 import subprocess
 import argparse
-from prbdf import Distribution , build, bin_discrete_value, get_text_stream , get_file_type,  PROC_POOL_SIZE
+from data_prism import Distribution , build, bin_discrete_value, get_text_stream , get_file_type,  PROC_POOL_SIZE
 
 
 class kmer_entropy_exception(exceptions.Exception):

@@ -1,0 +1,100 @@
+Notes
+=====
+
+Trying to reproduce the orignal plot, only available as genes1_windows
+ - can reproduce by re-executing plot statement, but not by building 
+the datamatrix from scatch -though do get similar results
+
+
+> load("\\\\isamba\\dataset\\bioinformatics_dev\\active\\qb_paper\\qb_paper\\figure_1\\genes1_windows.Rdata")
+> plot.default(p1$scores[,0:2],col=point_colours, pch=point_symbols, cex=1.3)
+> dim(datamatrix2)
+[1] 120  12
+> dim(gene_config_table)
+[1] 6 3
+> dim(datamatrix)
+[1] 189456     13
+> dim(datamatrix1)
+[1] 189456     12
+> dim(genes)
+[1] 20 12
+
+
+> load("\\\\isamba\\dataset\\bioinformatics_dev\\active\\qb_paper\\qb_paper\\figure_1\\genes1_windows.Rdata")
+> x<-as.vector(datamatrix2$gene_name)
+> table(x)
+x
+                                                                                                  CSN1S1 
+                                                                                                      20 
+                                                                                                  EEF1A1 
+                                                                                                      20 
+                KRT8, mRNA gb|BC103339.1| Bos taurus keratin 8, mRNA cDNA clone MGC:127225 IMAGE:7945645 
+                                                                                                      20 
+LOC527819, mRNA gb|BC134686.1| Bos taurus similar to keratin 4, mRNA cDNA clone MGC:155082 IMAGE:8477277 
+                                                                                                      20 
+                                                                                                     PRL 
+                                                                                                      20 
+                                                                                                   SEP15 
+                                                                                                      20 
+> 
+
+
+
+
+Comparing sizes when building from the raw data: 
+
+> dim(datamatrix2)
+[1] 180  12
+> dim(datamatrix)
+[1] 189456     13
+> dim(genes)
+[1] 30 12
+> 
+
+
+> x<-as.vector(datamatrix2$gene_name)
+> table(x)
+x
+                                                                                                  CSN1S1 
+                                                                                                      30 
+                                                                                                  EEF1A1 
+                                                                                                      30 
+                KRT8, mRNA gb|BC103339.1| Bos taurus keratin 8, mRNA cDNA clone MGC:127225 IMAGE:7945645 
+                                                                                                      30 
+LOC527819, mRNA gb|BC134686.1| Bos taurus similar to keratin 4, mRNA cDNA clone MGC:155082 IMAGE:8477277 
+                                                                                                      30 
+                                                                                                     PRL 
+                                                                                                      29 
+                                                                                                    PRLR 
+                                                                                                       1 
+                                                                                                   SEP15 
+                                                                                                      30 
+
+
+> 
+---------------- trying to fix -------------------------
+version 2
+
+> x<-as.vector(datamatrix2$gene_name)
+> table(x)
+x
+                                                                                                  CSN1S1 
+                                                                                                      20 
+                                                                                                  EEF1A1 
+                                                                                                      20 
+                KRT8, mRNA gb|BC103339.1| Bos taurus keratin 8, mRNA cDNA clone MGC:127225 IMAGE:7945645 
+                                                                                                      20 
+LOC527819, mRNA gb|BC134686.1| Bos taurus similar to keratin 4, mRNA cDNA clone MGC:155082 IMAGE:8477277 
+                                                                                                      20 
+                                                                                                     PRL 
+                                                                                                      20 
+                                                                                                   SEP15 
+                                                                                                      20 
+- this gives a closer plot - note the sampling is random
+
+Conclusion : load workspace and write out its datamatrix2 so we can work with that 
+snapshot
+
+
+
+
