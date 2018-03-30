@@ -1,0 +1,11 @@
+file	genome_name
+bgisheep_agbovine.csv	BGI Sheep Genome
+BovineVelevetSE_agbovine.csv	NGS Bovine Transcriptome
+btau42_agbovine.csv	Bovine Genome (Btau 4.2)
+btau461_agbovine.csv	Bovine Genome (Btau 4.61)
+cs34_agbovine.csv	Bovine Transcriptome (CS34)
+cs39_agbovine.csv	Sheep Transcriptome (CS39)
+dfciBt_agbovine.csv	Bovine Transcriptime (DFCI)
+dfciOa_agbovine.csv	Sheep Transcriptome (DFCI)
+umd2_agbovine.csv	Bovine Genome (UMD2)
+umd3_agbovine.csv	Bovine Genome (UMD3)
