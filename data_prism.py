@@ -14,23 +14,23 @@ import sys
 
 PROC_POOL_SIZE=30
 
-class prbdfException(exceptions.Exception):
+class data_prism_exception(exceptions.Exception):
     def __init__(self,args=None):
-        super(prbdfException, self).__init__(args)
+        super(data_prism_exception, self).__init__(args)
 
 
 
-class Distribution(object):
+class prism(object):
     """
-    this class is used to build a discrete multivariate frequency/probability Distribution, from very
-    large input data (for example an alignment file of nextgen sequence data), containing
-    mixed continuous and discrete multivariate data (the continuous variables are binned)    
+    this class is used to build a "spectrum" data structure, which is often but not alwaysa discrete multivariate
+    frequency/probability distribution, from large input data (for example an alignment file of nextgen sequence data),
+    containing mixed continuous and discrete multivariate data (the continuous variables are binned).
     """
 
     DEBUG = False
 
     def __init__(self,input_filenames, part_count = 1, input_streams=None):
-        super(Distribution, self).__init__()
+        super(prism, self).__init__()
 
         self.name = "noname"
         self.input_filenames = input_filenames
@@ -44,27 +44,27 @@ class Distribution(object):
                                            # as streams can't be pickled 
                                         
         self.part_count = part_count
-        self.point_weight = 0
-        self.approximate_zero_frequency = None
+        self.total_spectrum_value = 0
+        self.approximate_zero = None
         self.interval_locator_parameters = []   # Array with either length zero or same length as the number of dimensions. (Specify this if you use the
                                           # built-in interval locators)
         
-        self.interval_locator_funcs = []  # an array of functions suitable for locating which multi-dimenisonal interval a given value-tuple
+        self.interval_locator_funcs = []  # an array of functions suitable for locating which multi-dimensional interval a given value-tuple
                                           # should be assigned to. There should be same length as interval_locator_parameters
         self.assignments_files = [] # should be same length as interval_locator_parameters
-        self.file_to_stream_func = None   # this should yield the tuples that are the domain of the distribution
+        self.file_to_stream_func = None   # this should yield the tuples that are the domain of the spectrum
         self.file_to_stream_func_xargs = []        
-        self.weight_value_provider_func = default_weight_value_provider
-        self.weight_value_provider_func_xargs = []
-        self.frequency_distribution = None
+        self.spectrum_value_provider_func = default_spectrum_value_provider
+        self.spectrum_value_provider_func_xargs = []
+        self.spectrum = None
 
 
     def summary(self, details = False):
         if details:
             print """
-               distribution summary:
+               spectrum summary:
                
-               total point weight =     %s
+               total interval spectrum_value =     %s
                dimension count =        %s
                part_count =             %s
 
@@ -76,47 +76,47 @@ class Distribution(object):
                assignments files:       %s
                value provider:          %s
                value provider xargs:    %s  
-            """%(self.point_weight, len(self.interval_locator_funcs), self.part_count,\
+            """%(self.total_spectrum_value, len(self.interval_locator_funcs), self.part_count,\
                  str(self.input_filenames), str(self.interval_locator_parameters), str(self.interval_locator_funcs),\
                  str(self.assignments_files),str(self.file_to_stream_func),\
                  str(self.file_to_stream_func_xargs))
         else:
             print """
-               distribution summary:
+               spectrum summary:
                
-               total point weight =     %s
+               total interval spectrum_value =     %s
                dimension count =        %s
                part_count =             %s
                approx_zero =            %s
                input filenames:         %s
                
-            """%(self.point_weight, len(self.interval_locator_funcs), self.part_count,self.approximate_zero_frequency,\
+            """%(self.total_spectrum_value, len(self.interval_locator_funcs), self.part_count,self.approximate_zero,\
                  str(self.input_filenames))
             
     def list(self):
-        distdata = self.get_distribution()
-        for (interval, freq) in distdata.items():
-            print interval, freq
+        spectrumdata = self.get_spectrum()
+        for (interval, value) in spectrumdata.items():
+            print interval, value
             
              
     def check_settings(self):
         if len(self.input_filenames) > 0 and self.file_to_stream_func is None:
-            raise prbdfException("""
+            raise data_prism_exception("""
             Error - you have specified one or more input files, so you also need to set a file_to_stream_func - e.g.
             
-            from prbdf import from_tab_delimited_file
-            my_dist_ob.file_to_stream_func = from_tab_delimited_file    # e.g. read a tab-delimited file 
-            my_dist_ob.file_to_stream_func_xargs = [1,3,6]              # e.g. use fields 1 3 and 6 
+            from data_prism import from_tab_delimited_file
+            my_prism.file_to_stream_func = from_tab_delimited_file    # e.g. read a tab-delimited file 
+            my_prism.file_to_stream_func_xargs = [1,3,6]              # e.g. use fields 1 3 and 6 
             """)
             
         if len(self.interval_locator_funcs) != len(self.interval_locator_parameters) and len(self.interval_locator_parameters) > 0:
-            raise prbdfException("Error - there are %d interval locator functions specified, but %d dimensions"%(len(self.interval_locator_funcs),len(self.interval_locator_parameters)))
+            raise data_prism_exception("Error - there are %d interval locator functions specified, but %d dimensions"%(len(self.interval_locator_funcs),len(self.interval_locator_parameters)))
         if len(self.assignments_files) > 0:
             if len(self.assignments_files) != len(self.interval_locator_funcs):
-                raise prbdfException("Error - there are %d interval assignments files specified, but %d dimensions"%(len(self.assignments_files),len(self.interval_locator_funcs)))
+                raise data_prism_exception("Error - there are %d interval assignments files specified, but %d dimensions"%(len(self.assignments_files),len(self.interval_locator_funcs)))
         
         
-    def get_raw_values_stream(self):
+    def get_spectrum_values_stream(self):
         file_streams = [self.file_to_stream_func(filename, *self.file_to_stream_func_xargs) for filename in self.input_filenames]
         if self.input_streams is not None:
             #print "(using additional %d input readers with record counts : %s)"%(len(self.inpucount_providert_streams), str(map(len, self.input_streams)))
@@ -128,42 +128,50 @@ class Distribution(object):
             all_streams = itertools.chain(*file_streams)
         return all_streams
 
-    def get_containing_interval(self, point_value):
-        return tuple(map(lambda f,value,interval:f(value,interval), self.interval_locator_funcs, point_value, self.interval_locator_parameters))
+    def get_containing_interval(self, interval_value):
+        return tuple(map(lambda f,value,interval:f(value,interval), self.interval_locator_funcs, interval_value, self.interval_locator_parameters))
         
-    def get_partial_distribution(self, slice_number):
-        #print "DEBUG in partial distribution"
+    def get_partial_spectrum(self, slice_number):
+        """
+        this obtains a partial spectrum for one slice of the input file - this allows multiprocessing
+        of an input file , as well as reducing intermediate dictionary sizes
+        """
+        #print "DEBUG in partial spectrum"
 
         self.check_settings()
         
-        raw_values = self.get_raw_values_stream()
+        spectrum_values = self.get_spectrum_values_stream()
 
-        myslice=itertools.islice(raw_values, slice_number, None, self.part_count) 
-        
+        myslice=itertools.islice(spectrum_values, slice_number, None, self.part_count) 
+
+        # in this block we do a raw summary of the input data - without at this stage
+        # assigning it to the final spectrum intervals. This minimises the number of calls
+        # to the interval locator function. 
         sparse_data_summary = {}
-    
-        for point in myslice:
+        for interval in myslice:
             if self.DEBUG:
-                print "DEBUG raw value : %s"%str(point)
+                print "DEBUG raw value : %s"%str(interval)
 
-            for weight_value_tuple in self.weight_value_provider_func(point, *self.weight_value_provider_func_xargs):
+            for spectrum_value_tuple in self.spectrum_value_provider_func(interval, *self.spectrum_value_provider_func_xargs):
                 if self.DEBUG:
-                    print "DEBUG weight_value_tuple = %s length %d"%(str(weight_value_tuple), len(weight_value_tuple))
+                    print "DEBUG spectrum_value_tuple = %s length %d"%(str(spectrum_value_tuple), len(spectrum_value_tuple))
 
-                if len(weight_value_tuple) != 1+len(self.interval_locator_funcs):
-                    raise prbdfException("Error - I received a weight_value_tuple %s but there are %d interval locators for locating the value"%(str(weight_value_tuple), len(self.interval_locator_funcs)))
-                weight = float(weight_value_tuple[0])
-                value = weight_value_tuple[1:]
+                if len(spectrum_value_tuple) != 1+len(self.interval_locator_funcs):
+                    raise data_prism_exception("Error - I received a spectrum_value_tuple %s but there are %d interval locators for locating the value"%(str(spectrum_value_tuple), len(self.interval_locator_funcs)))
+                spectrum_value = float(spectrum_value_tuple[0])
+                spectrum_interval = spectrum_value_tuple[1:]
                 if self.DEBUG:
-                    print "Value tuple = %s weight = %s"%(value, weight)
-                if type(value) != tuple:
-                    raise prbdfException("Error - I got %s from the weight_value provider: value should be a tuple , instead it is %s (%s)"%(str(weight_value), str(value), type(value)))
+                    print "interval tuple = %s spectrum_value = %s"%(spectrum_interval, spectrum_value)
+                if type(spectrum_interval) != tuple:
+                    raise data_prism_exception("Error - I got %s from the spectrum_value provider: interval should be a tuple , instead it is %s (%s)"%(str(spectrum_value), str(spectrum_interval), type(spectrum_interval)))
                 
-                sparse_data_summary[value] = weight  +  sparse_data_summary.setdefault(value,0)
+                sparse_data_summary[spectrum_interval] = spectrum_value  +  sparse_data_summary.setdefault(spectrum_interval,0)
                 
 
+        # now we process the raw summary from the above, to accumulate the spectrum in the
+        # final spectrum intervals
         partial = {}
-        point_weight = 0
+        total_spectrum_value = 0
         assignment_writers = []
         if len(self.assignments_files) > 0:
             assignment_writers = [open("%s.%d"%(assignments_file,slice_number) ,"w") for assignments_file in self.assignments_files]
@@ -181,36 +189,36 @@ class Distribution(object):
 
             partial[interval] = partial.setdefault(interval,0) + sparse_total
             
-            point_weight += sparse_total
+            total_spectrum_value += sparse_total
         if len(assignment_writers) > 0:
             map(lambda writer:writer.close(), assignment_writers)
         
         return (slice_number, partial)
 
-    def get_distribution(self):
+    def get_spectrum(self):
         """
-        returns a merge of the part pd's
+        this method obtains the complete spectrum, by adding together the partial spectra
         """
-        self.frequency_distribution = {}
-        self.point_weight = 0
+        self.spectrum = {}
+        self.total_spectrum_value = 0
         for part in self.part_dict.values():
             for interval in part:
-                self.frequency_distribution[interval] = self.frequency_distribution.setdefault(interval,0) + part[interval]
-                self.point_weight += part[interval]
+                self.spectrum[interval] = self.spectrum.setdefault(interval,0) + part[interval]
+                self.total_spectrum_value += part[interval]
 
-        # calulate an "approximate_zero" frequency - it is half the minimum frequency in any interval
-        values = self.frequency_distribution.values()
+        # calulate an "approximate_zero"  - it is half the minimum raw value in any interval of the spectrum
+        values = self.spectrum.values()
         if len(values) > 0:
-            self.approximate_zero_frequency = min(self.frequency_distribution.values())/2.0
+            self.approximate_zero = min(self.spectrum.values())/2.0
         else:
-            self.approximate_zero_frequency = 0.5
-            self.point_weight = self.approximate_zero_frequency 
+            self.approximate_zero = 0.5
+            self.total_spectrum_value = self.approximate_zero 
 
-        return self.frequency_distribution
+        return self.spectrum
 
     
     def save(self, filename):
-        print "saving prbdf object to %s"%filename
+        print "saving prism object to %s"%filename
         #print "object contains : %s"%dir(self)
         
         input_streams = self.input_streams
@@ -227,66 +235,63 @@ class Distribution(object):
     def load(filename):
         return p_load(filename)
             
-    def get_frequency(self,point, default_frequency = 0, return_interval = False ):
-        interval = self.get_containing_interval(point)
+    def get_spectrum_value(self,interval, default_spectrum_value = 0, return_interval = False ):
+        interval = self.get_containing_interval(interval)
         if return_interval:
-            return (self.frequency_distribution.get(interval, default_frequency), interval)
+            return (self.spectrum.get(interval, default_spectrum_value), interval)
         else:
-            return self.frequency_distribution.get(interval, default_frequency)
-
-    def get_density(self,point, method = None):
-        return self.get_frequency(point) / float(self.point_weight)
-    
-    def get_information(self,point, method = None):
-        frequency = self.get_frequency(point,0)
-        if frequency > 0:
-            return -1.0 * math.log(self.get_frequency(point) / float(self.point_weight))
+            return self.spectrum.get(interval, default_spectrum_value)
+   
+    def get_information(self,interval, method = None):
+        spectrum_value = self.get_spectrum_value(interval,0)
+        if spectrum_value > 0:
+            return -1.0 * math.log(self.get_spectrum_value(interval) / float(self.total_spectrum_value))
         else:
-            return -1.0 * math.log(1.0 / (1.0 + float(self.point_weight)))
+            return -1.0 * math.log(1.0 / (1.0 + float(self.total_spectrum_value)))
             
-    def get_information_projection(self, points, return_intervals = False):
-        return p_get_information_projection((self, points, return_intervals))
+    def get_information_projection(self, intervals, return_intervals = False):
+        return p_get_information_projection((self, intervals, return_intervals))
 
-    def get_signed_information_projection(self, points, return_intervals = False):
-        return p_get_signed_information_projection((self, points, return_intervals))
+    def get_signed_information_projection(self, intervals, return_intervals = False):
+        return p_get_signed_information_projection((self, intervals, return_intervals))
 
-    def get_unsigned_information_projection(self, points, return_intervals = False):
-        return p_get_unsigned_information_projection((self, points, return_intervals))
+    def get_unsigned_information_projection(self, intervals, return_intervals = False):
+        return p_get_unsigned_information_projection((self, intervals, return_intervals))
 
-    def get_frequency_projection(self, points, return_intervals = False):
-        return p_get_frequency_projection((self, points, return_intervals))
+    def get_raw_projection(self, intervals, return_intervals = False):
+        return p_get_raw_projection((self, intervals, return_intervals))
 
 
     @staticmethod
-    def get_intervals(distribution_names,proc_pool_size=PROC_POOL_SIZE):
+    def get_intervals(spectrum_names,proc_pool_size=PROC_POOL_SIZE):
         """
-        this method gets a union of all the intervals from a number of distributions.
+        this method gets a union of all the intervals from a number of spectra.
         (Since it is returned as a list, this should be in a consistent order from call to call)
         """
         pool = Pool(proc_pool_size)
-        distributions = pool.map(p_load,distribution_names)
+        spectra = pool.map(p_load,spectrum_names)
         intervals = set()
-        for distribution in distributions:
-            intervals |= set(distribution.get_distribution().keys())
+        for spectrum in spectra:
+            intervals |= set(spectrum.get_spectrum().keys())
 
         return sorted(list(intervals))
         
 
     @staticmethod
-    def get_projections(distribution_names, points, projection_type, return_intervals = False, proc_pool_size = PROC_POOL_SIZE):
+    def get_projections(spectrum_names, intervals, projection_type, return_intervals = False, proc_pool_size = PROC_POOL_SIZE):
         """
-        this method gets frequency projections of a set of points across multiple distributions
+        this method gets projections of a set of intervals across multiple spectra
         """
         print "distributing projections across %d processes"%proc_pool_size        
         pool = Pool(proc_pool_size)
-        print "get_projections : loading %s"%str(distribution_names)
-        distributions = pool.map(p_load,distribution_names)
-        print "done loading %d distributions"%len(distributions)
+        print "get_projections : loading %s"%str(spectrum_names)
+        spectra = pool.map(p_load,spectrum_names)
+        print "done loading %d spectra"%len(spectra)
 
-        args = zip(distributions, [points for distribution in distributions], [return_intervals for distribution in distributions])
+        args = zip(spectra, [intervals for spectrum in spectra], [return_intervals for spectrum in spectra])
 
-        if projection_type == "frequency": 
-            projections = pool.map(p_get_frequency_projection, args)
+        if projection_type == "raw": 
+            projections = pool.map(p_get_raw_projection, args)
         elif projection_type == "unsigned_information":
             projections = pool.map(p_get_unsigned_information_projection, args)
         elif projection_type == "signed_information":
@@ -294,7 +299,7 @@ class Distribution(object):
         elif projection_type == "information":
             projections = pool.map(p_get_information_projection, args)
         else:
-            raise prbdfException("projection type %s not supported"%projection_type)
+            raise data_prism_exception("projection type %s not supported"%projection_type)
 
         return projections
 
@@ -303,39 +308,38 @@ class Distribution(object):
 # distance-related  methods
 # these methods don't really belong in this class here as a convenience.
 # They calculate distances between column vectors of a matrix acccording
-# to various metrics related to the frequency distributions that are the
+# to various metrics related to the spectrum_value distributions that are the
 # subject of this class
 #################################################
 
     @staticmethod
     def get_rank_iter(space_iter):
         """
-        This method takes a matrix in which each column is probably a frequency or
-        entropy projection and replaces each value in the column with its rank in the column,
+        This method takes a matrix and replaces each value in the column with its rank in the column,
         and returns the matrix
         """
-        point_names = space_iter.next()
-        if Distribution.DEBUG:
+        interval_names = space_iter.next()
+        if prism.DEBUG:
             print "**** DEBUG ranking"            
-            print str(point_names)
+            print str(interval_names)
             
         space_tuples = list(space_iter)
-        if Distribution.DEBUG:
+        if prism.DEBUG:
             print "**** DEBUG ranking"
             print str(space_tuples)
 
         ranked_columns=[]
-        for ipoint in range(0,len(point_names)):
+        for iinterval in range(0,len(interval_names)):
             index = range(0,len(space_tuples))
 
-            if Distribution.DEBUG:
+            if prism.DEBUG:
                 print "**** DEBUG ranking"
                 print index
                 for i in range(0,len(space_tuples)):
-                    print ipoint, i, space_tuples[i][ipoint]
+                    print iinterval, i, space_tuples[i][iinterval]
                 
                 
-            ordered_index = sorted(index, lambda index1, index2: cmp(space_tuples[index1][ipoint], space_tuples[index2][ipoint]))
+            ordered_index = sorted(index, lambda index1, index2: cmp(space_tuples[index1][iinterval], space_tuples[index2][iinterval]))
             ranks = sorted(index, lambda index1, index2: cmp(ordered_index[index1], ordered_index[index2]))
 
             #make 1-based ranks
@@ -343,11 +347,11 @@ class Distribution(object):
             
             ranked_columns.append(ranks)
 
-        if Distribution.DEBUG:
+        if prism.DEBUG:
             print "**** DEBUG ranking"
             print ranked_columns
 
-        return itertools.chain([point_names], itertools.izip(*ranked_columns)) 
+        return itertools.chain([interval_names], itertools.izip(*ranked_columns)) 
 
     @staticmethod
     def get_distance_matrix(space_iter, method="euclidean"):
@@ -363,7 +367,7 @@ class Distribution(object):
         elif method == "zipfian":
             return get_zipfian_distance_matrix(space_iter)
         else:
-            raise prbdfException("unknown distance method %s"%method)
+            raise data_prism_exception("unknown distance method %s"%method)
         
     @staticmethod
     def get_euclidean_distance_matrix(space_iter):
@@ -375,8 +379,8 @@ class Distribution(object):
         """
         distance_matrix = {}
         
-        point_names = space_iter.next()
-        pair_names = [pair for pair in itertools.combinations(point_names,2)]
+        interval_names = space_iter.next()
+        pair_names = [pair for pair in itertools.combinations(interval_names,2)]
         dimension_count = 0
         for dimension in space_iter:  # each row is a dimension
             dimension_count += 1
@@ -393,12 +397,12 @@ class Distribution(object):
         for pair_name in pair_names:
             distance_matrix[(pair_name[1], pair_name[0])] = distance_matrix[pair_name]
         # fill in diagonal
-        for point_name in point_names:
-            distance_matrix[(point_name, point_name)] = 0
+        for interval_name in interval_names:
+            distance_matrix[(interval_name, interval_name)] = 0
 
-        point_names_sorted = sorted(point_names)
+        interval_names_sorted = sorted(interval_names)
 
-        return (distance_matrix, point_names_sorted)
+        return (distance_matrix, interval_names_sorted)
 
 
     @staticmethod
@@ -419,10 +423,10 @@ class Distribution(object):
         """
         distance_matrix = {}
         
-        point_names = space_iter.next()
+        interval_names = space_iter.next()
         rank_iter.next() # throw away headings in the rank clone
         
-        pair_names = [pair for pair in itertools.combinations(point_names,2)]
+        pair_names = [pair for pair in itertools.combinations(interval_names,2)]
 
 
         # obtain the space of zipfian functions. Each function is represented by a dictionary, with key=rank,
@@ -430,7 +434,7 @@ class Distribution(object):
         space_aslist = list(space_iter)
         rank_aslist = list(rank_iter)
 
-        function_space = [dict(map(lambda a,b:(a[j], b[j]), rank_aslist, space_aslist)) for j in range(0,len(point_names))]
+        function_space = [dict(map(lambda a,b:(a[j], b[j]), rank_aslist, space_aslist)) for j in range(0,len(interval_names))]
 
         #print "DEBUG"
         #for key in function_space[0].keys():
@@ -448,9 +452,9 @@ class Distribution(object):
             d = math.sqrt(reduce(lambda dsum,rank: dsum + ((f1[rank]-f2[rank])**2 / float(rank))   ,f1.keys(), 0.0))
             return d
 
-        # get distances between pairs of points            
+        # get distances between pairs of intervals            
         for pair_name in pair_names:
-            pair_index = (point_names.index(pair_name[0]), point_names.index(pair_name[1]))
+            pair_index = (interval_names.index(pair_name[0]), interval_names.index(pair_name[1]))
             #print "DEBUG"
             #print "processing %s ( %s )"%(str(pair_name), str(pair_index))
             distance_matrix[pair_name] = zipf_distance_func(function_space[pair_index[0]],function_space[pair_index[1]])
@@ -460,42 +464,42 @@ class Distribution(object):
         for pair_name in pair_names:
             distance_matrix[(pair_name[1], pair_name[0])] = distance_matrix[pair_name]
         # fill in diagonal
-        for point_name in point_names:
-            distance_matrix[(point_name, point_name)] = 0
+        for interval_name in interval_names:
+            distance_matrix[(interval_name, interval_name)] = 0
 
-        point_names_sorted = sorted(point_names)
+        interval_names_sorted = sorted(interval_names)
 
-        return (distance_matrix, point_names_sorted)
+        return (distance_matrix, interval_names_sorted)
                                                             
         
 
     @staticmethod
-    def print_distance_matrix(distance_matrix, point_names_sorted, outfile=sys.stdout):   
-        print >> outfile, string.join([""] + point_names_sorted, "\t")
-        for row_point in point_names_sorted:
-            print >> outfile, string.join([row_point]+[str(distance_matrix[(row_point, col_point)]) for col_point in point_names_sorted], "\t")
+    def print_distance_matrix(distance_matrix, interval_names_sorted, outfile=sys.stdout):   
+        print >> outfile, string.join([""] + interval_names_sorted, "\t")
+        for row_interval in interval_names_sorted:
+            print >> outfile, string.join([row_interval]+[str(distance_matrix[(row_interval, col_interval)]) for col_interval in interval_names_sorted], "\t")
 
 
 
 #################################################
-# top level versions of Distribution methods
+# top level versions of spectrum methods
 # for use in multiprocessing context
 #################################################
-def p_get_frequency_projection((distribution, points, return_intervals)):
+def p_get_raw_projection((spectrum, intervals, return_intervals)):
 
-    projection = len(points) * [None]
+    projection = len(intervals) * [None]
     if return_intervals:
-        intervals = len(points) * [None]
+        intervals = len(intervals) * [None]
     
     index = 0
-    for point in points:
+    for interval in intervals:
         if not return_intervals:
-            projection[index] = distribution.get_frequency(point,0)
+            projection[index] = spectrum.get_spectrum_value(interval,0)
         else:
-            (projection[index], intervals[index]) = distribution.get_frequency(point,0, True)
+            (projection[index], intervals[index]) = spectrum.get_spectrum_value(interval,0, True)
         
-        #projection[point_weight] = distribution.get_frequency(point,0)
-        #point_weight += 1
+        #projection[total_spectrum_value] = spectrum.get_spectrum_value(interval,0)
+        #total_spectrum_value += 1
         index += 1
 
     if not return_intervals:
@@ -504,37 +508,37 @@ def p_get_frequency_projection((distribution, points, return_intervals)):
         return (projection, intervals)
 
 
-def p_get_information_projection((distribution, points, return_intervals)):
-    projection = len(points) * [None]
+def p_get_information_projection((spectrum, intervals, return_intervals)):
+    projection = len(intervals) * [None]
     if return_intervals:
-        intervals = len(points) * [None]
+        intervals = len(intervals) * [None]
         
-    missing_weight = 0
+    missing_spectrum_value = 0
     index = 0
-    total_weight = 0
-    for point in points:
-        (weight, interval)= distribution.get_frequency(point,0, True)
+    total_spectrum_value = 0
+    for interval in intervals:
+        (spectrum_value, interval)= spectrum.get_spectrum_value(interval,0, True)
         if not return_intervals:
-            projection[index] = weight
+            projection[index] = spectrum_value
         else:
-            (projection[index], intervals[index]) = (weight, interval)
+            (projection[index], intervals[index]) = (spectrum_value, interval)
             
         if projection[index] == 0:
-            missing_weight += 1
+            missing_spectrum_value += 1
             
         index += 1
-        total_weight += weight
+        total_spectrum_value += spectrum_value
 
-    missing_weight = float(missing_weight)
+    missing_spectrum_value = float(missing_spectrum_value)
 
-    # all points projected onto missing get frequency "missing_weight"
+    # all intervals projected onto missing get spectrum_value "missing_spectrum_value"
     # calculate information content based on the basis frequencies grossed up for 
-    # missing points 
+    # missing intervals 
     for index in range(len(projection)):
         if projection[index] == 0:
-            projection[index] = missing_weight
+            projection[index] = missing_spectrum_value
 
-        projection[index] = -1.0 * math.log(projection[index] / float(total_weight + missing_weight), 2.0)
+        projection[index] = -1.0 * math.log(projection[index] / float(total_spectrum_value + missing_spectrum_value), 2.0)
 
     if not return_intervals:
         return projection
@@ -542,43 +546,43 @@ def p_get_information_projection((distribution, points, return_intervals)):
         return (projection, intervals)
 
 
-def p_get_signed_information_projection((distribution, points, return_intervals)):
-    projection = len(points) * [None]
+def p_get_signed_information_projection((spectrum, intervals, return_intervals)):
+    projection = len(intervals) * [None]
     if return_intervals:
-        intervals = len(points) * [None]
+        intervals = len(intervals) * [None]
         
-    missing_weight = 0
+    missing_spectrum_value = 0
     index = 0
-    total_weight = 0
-    for point in points:
-        (weight, interval)= distribution.get_frequency(point,0, True)
+    total_spectrum_value = 0
+    for interval in intervals:
+        (spectrum_value, interval)= spectrum.get_spectrum_value(interval,0, True)
         if not return_intervals:
-            projection[index] = weight
+            projection[index] = spectrum_value
         else:
-            (projection[index], intervals[index]) = (weight, interval)
+            (projection[index], intervals[index]) = (spectrum_value, interval)
             
         if projection[index] == 0:
-            missing_weight += 1
+            missing_spectrum_value += 1
             
         index += 1
-        total_weight += weight
+        total_spectrum_value += spectrum_value
 
-    missing_weight = float(missing_weight)
+    missing_spectrum_value = float(missing_spectrum_value)
 
-    #if missing_weight == len(points):
-    #    raise prbdfException("no point maps - unable to calculate projection")
+    #if missing_spectrum_value == len(intervals):
+    #    raise data_prism_exception("no interval maps - unable to calculate projection")
 
-    # as above (unsigned) all points projected onto missing get frequency "missing_weight"
-    # but now the missing points do not affect the projection of other points. 
-    # Instead missing points get a negative information measure calculated as
+    # as above (unsigned) all intervals projected onto missing get spectrum_value "missing_spectrum_value"
+    # but now the missing intervals do not affect the projection of other intervals. 
+    # Instead missing intervals get a negative information measure calculated as
     # P/1-P log P
-    # where P is the probability that a projection point maps - i.e. is not missing
-    P = (len(points) - missing_weight) / float(len(points))
+    # where P is the probability that a projection interval maps - i.e. is not missing
+    P = (len(intervals) - missing_spectrum_value) / float(len(intervals))
     for index in range(len(projection)):
         if projection[index] == 0:
             projection[index] =  (P / float(1-P) ) * math.log(P,2.0)
         else:
-            projection[index] = -1.0 * math.log(projection[index] / total_weight, 2.0)
+            projection[index] = -1.0 * math.log(projection[index] / total_spectrum_value, 2.0)
 
     if not return_intervals:
         return projection
@@ -586,39 +590,39 @@ def p_get_signed_information_projection((distribution, points, return_intervals)
         return (projection, intervals)
 
 
-def p_get_unsigned_information_projection((distribution, points, return_intervals)):
-    projection = len(points) * [None]
+def p_get_unsigned_information_projection((spectrum, intervals, return_intervals)):
+    projection = len(intervals) * [None]
     if return_intervals:
-        intervals = len(points) * [None]
+        intervals = len(intervals) * [None]
         
-    missing_weight = 0
+    missing_spectrum_value = 0
     index = 0
-    total_weight = 0
-    for point in points:
-        (weight, interval)= distribution.get_frequency(point,0, True)
+    total_spectrum_value = 0
+    for interval in intervals:
+        (spectrum_value, interval)= spectrum.get_spectrum_value(interval,0, True)
         if not return_intervals:
-            projection[index] = weight
+            projection[index] = spectrum_value
         else:
-            (projection[index], intervals[index]) = (weight, interval)
+            (projection[index], intervals[index]) = (spectrum_value, interval)
             
         if projection[index] == 0:
-            missing_weight += 1
+            missing_spectrum_value += 1
             
         index += 1
-        total_weight += weight
+        total_spectrum_value += spectrum_value
 
-    missing_weight = float(missing_weight)
+    missing_spectrum_value = float(missing_spectrum_value)
 
-    #if missing_weight == len(points):
-    #    raise prbdfException("no point maps - unable to calculate projection")
+    #if missing_spectrum_value == len(intervals):
+    #    raise data_prism_exception("no interval maps - unable to calculate projection")
 
-    # all points projected onto missing get frequency of approximate_zero_frequency (e.g. often .5) 
-    # (but do not affect the projection of other points)
+    # all intervals projected onto missing get spectrum_value of approximate_zero (e.g. often .5) 
+    # (but do not affect the projection of other intervals)
     for index in range(len(projection)):
         if projection[index] == 0:
-            projection[index] = -1.0 * math.log(distribution.approximate_zero_frequency / float(total_weight), 2.0)
+            projection[index] = -1.0 * math.log(spectrum.approximate_zero / float(total_spectrum_value), 2.0)
         else:
-            projection[index] = -1.0 * math.log(projection[index] / float(total_weight), 2.0)
+            projection[index] = -1.0 * math.log(projection[index] / float(total_spectrum_value), 2.0)
 
     if not return_intervals:
         return projection
@@ -632,8 +636,8 @@ def p_load(filename):
     pinstance = pickle.load(preader)
     preader.close()
 
-    if not isinstance(pinstance, Distribution):
-        raise prbdfException("%s is not a distribution object"%filename )
+    if not isinstance(pinstance, prism):
+        raise data_prism_exception("%s is not a spectrum object"%filename )
     return pinstance
 
         
@@ -697,13 +701,13 @@ class outer_list(list):
         else:
             return super(outer_list,self).__getitem__(key)
 
-def default_weight_value_provider(point, *xargs):
+def default_spectrum_value_provider(interval, *xargs):
     """
-    the default weight_value_provider function is suitable when used with a stream
-    provider (e.g file_to_stream or a user-provided steam)  that yields the domain points of the
-    distribution.
+    the default spectrum_value_provider function is suitable when used with a stream
+    provider (e.g file_to_stream or a user-provided steam)  that yields the domain intervals of the
+    spectrum.
     """
-    return (((1,)+point),)     # this needs to provide a tuple of 1 tuples (not just a tuple)
+    return (((1,)+interval),)     # this needs to provide a tuple of 1 tuples (not just a tuple)
                                # (because some provider functions provide tuples of many tuples)
 
 def get_file_type(file_name):
@@ -781,7 +785,7 @@ def kmer_count_from_sequence(sequence, *args):
 
     reverse_complement = args[0]
     pattern_window_length = args[1]  # optional - for fixed length patterns e.g. 6-mers etc, to speed up search
-    weight = args[2] # un-used currently 
+    spectrum_value = args[2] # un-used currently 
     patterns = args[3:]
 
     #print "DEBUG sequence%s"%str(sequence)
@@ -831,42 +835,42 @@ def kmer_count_from_sequence(sequence, *args):
 #################################################
 
 
-def build_part((distob, slice_number)):
+def build_part((spectrum_instance, slice_number)):
     print "build_part is building part %d"%slice_number
-    return distob.get_partial_distribution(slice_number)
+    return spectrum_instance.get_partial_spectrum(slice_number)
 
-def build(distob, use="multithreads", proc_pool_size = PROC_POOL_SIZE):
+def build(spectrum_instance, use="multithreads", proc_pool_size = PROC_POOL_SIZE):
 
     if use == "cluster":
-        args = [(distob, slice_number)  for slice_number in range(0,distob.part_count)]
-        distob.part_dict = dict(pool.map(build_part,args))
+        args = [(spectrum_instance, slice_number)  for slice_number in range(0,spectrum_instance.part_count)]
+        spectrum_instance.part_dict = dict(pool.map(build_part,args))
 
-        return distob.get_distribution()
+        return spectrum_instance.get_spectrum()
         
     elif use == "multithreads":
         pool = Pool(proc_pool_size)
         
-        args = [(distob, slice_number)  for slice_number in range(0,distob.part_count)]
+        args = [(spectrum_instance, slice_number)  for slice_number in range(0,spectrum_instance.part_count)]
 
         print "mapping %s build parts to a pool of size %d"%(len(args), proc_pool_size)
-        distob.part_dict = dict(pool.map(build_part,args))
+        spectrum_instance.part_dict = dict(pool.map(build_part,args))
 
-        return distob.get_distribution()
+        return spectrum_instance.get_spectrum()
 
     elif use == "singlethread":
         
-        args = [(distob, slice_number)  for slice_number in range(0,distob.part_count)]
+        args = [(spectrum_instance, slice_number)  for slice_number in range(0,spectrum_instance.part_count)]
 
         results = []
         for arg in args:
             results.append(build_part(arg))
             
-        distob.part_dict = dict(results)
+        spectrum_instance.part_dict = dict(results)
 
-        return distob.get_distribution()
+        return spectrum_instance.get_spectrum()
     
     else:
-        raise prbdfException("error - unknown resource specified for build : %s"%use)
+        raise data_prism_exception("error - unknown resource specified for build : %s"%use)
     
 
         
