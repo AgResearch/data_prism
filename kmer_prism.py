@@ -9,12 +9,12 @@ from random import random
 from multiprocessing import Pool
 import subprocess
 import argparse
-from data_prism import Distribution , build, bin_discrete_value, get_text_stream , get_file_type,  PROC_POOL_SIZE
+from data_prism import spectrum , build, bin_discrete_value, get_text_stream , get_file_type,  PROC_POOL_SIZE
 
 
-class kmer_entropy_exception(exceptions.Exception):
+class kmer_prism_exception(exceptions.Exception):
     def __init__(self,args=None):
-        super(kmer_entropy_exception, self).__init__(args)
+        super(kmer_prism_exception, self).__init__(args)
 
 #********************************************************************
 # methods for getting kmer counts from sequence files
@@ -114,7 +114,7 @@ indicates how many of that tag there are
     (input_driver_config, sampling_proportion) = args[0:2]
 
     if input_driver_config is None:
-        raise kmer_entropy_exception("""
+        raise kmer_prism_exception("""
 must supply input driver config for .cnt files. This consists of the name of a
 script which lists the contents of the tile in text. Example code using tassel3 and bash shell:
 mkfifo f1
@@ -149,7 +149,7 @@ cat <$f1
                     else:
                         break
             else:
-                raise kmer_entropy_exception("Error encountered running %s - return code was %s, stderr:%s stdout:%s"%(" ".join(cat_tag_count_command),proc.returncode,stderr,stdout))
+                raise kmer_prism_exception("Error encountered running %s - return code was %s, stderr:%s stdout:%s"%(" ".join(cat_tag_count_command),proc.returncode,stderr,stdout))
 
             if common_prefix_length > 0 :
                 common_prefix = sorted_tuples[0][0:common_prefix_length]
@@ -168,7 +168,7 @@ cat <$f1
             #    print "DEBUG %s"%str(record)
             #    sys.exit(1)
         else:
-            raise kmer_entropy_exception("Error encountered running %s"%" ".join(cat_tag_count_command))
+            raise kmer_prism_exception("Error encountered running %s"%" ".join(cat_tag_count_command))
 
     #print "DEBUG got tag count iter"
     return tagcount_iter
@@ -203,7 +203,7 @@ def kmer_count_from_tag_count(tag_count_tuple, *args):
         strseq = tag
         kmer_dict = {}
         overlap_patterns = pattern_window_length * [""]        
-        kmer_iter = (strseq[i:i+pattern_window_length] for i in range(0,1+len(strseq)-pattern_window_length))
+        kmer_iter = (strseq[i:i+pattern_window_length] for i in range(0,1+len(strseq)-pattern_window_length)
         for kmer in kmer_iter:
             if kmer not in overlap_patterns:
                 overlap_patterns.insert(0,kmer)
@@ -224,45 +224,45 @@ def kmer_count_from_tag_count(tag_count_tuple, *args):
 #********************************************************************
 # general analysis / summary methods 
 #********************************************************************
-def build_kmer_distribution(datafile, kmer_patterns, sampling_proportion, num_processes, builddir, reverse_complement, pattern_window_length, input_driver_config):
+def build_kmer_spectrum(datafile, kmer_patterns, sampling_proportion, num_processes, builddir, reverse_complement, pattern_window_length, input_driver_config):
 
     if os.path.exists(get_save_filename(datafile, builddir)):
-        print("build_kmer_distribution- skipping %s as already done"%datafile)
-        distob = Distribution.load(get_save_filename(datafile, builddir))
-        distob.summary()
+        print("build_kmer_spectrum- skipping %s as already done"%datafile)
+        kmer_spectrum = spectrum.load(get_save_filename(datafile, builddir))
+        kmer_spectrum.summary()
         
     else:
-        print("build_kmer_distribution- processing %s"%datafile)
+        print("build_kmer_spectrum- processing %s"%datafile)
         filetype = get_file_type(datafile)
-        distob = Distribution([datafile], num_processes)
-        distob.interval_locator_parameters = (None,)
-        distob.interval_locator_funcs = (bin_discrete_value,)
-        distob.assignments_files = ("kmer_binning.txt",)
-        distob.file_to_stream_func = seq_from_sequence_file
-        distob.file_to_stream_func_xargs = [filetype,sampling_proportion]
-        distob.weight_value_provider_func = kmer_count_from_sequence
-        distob.weight_value_provider_func_xargs = [reverse_complement, pattern_window_length, 1] + kmer_patterns        
+        kmer_spectrum = spectrum([datafile], num_processes)
+        kmer_spectrum.interval_locator_parameters = (None,)
+        kmer_spectrum.interval_locator_funcs = (bin_discrete_value,)
+        kmer_spectrum.assignments_files = ("kmer_binning.txt",)
+        kmer_spectrum.file_to_stream_func = seq_from_sequence_file
+        kmer_spectrum.file_to_stream_func_xargs = [filetype,sampling_proportion]
+        kmer_spectrum.weight_value_provider_func = kmer_count_from_sequence
+        kmer_spectrum.weight_value_provider_func_xargs = [reverse_complement, pattern_window_length, 1] + kmer_patterns        
         
         if filetype == ".cnt":
             #print "DEBUG setting methods for count file"
-            distob.file_to_stream_func = tag_count_from_tag_count_file
-            distob.file_to_stream_func_xargs = [input_driver_config,sampling_proportion]
-            distob.weight_value_provider_func = kmer_count_from_tag_count 
-            distdata = build(distob, use="singlethread")
+            kmer_spectrum.file_to_stream_func = tag_count_from_tag_count_file
+            kmer_spectrum.file_to_stream_func_xargs = [input_driver_config,sampling_proportion]
+            kmer_spectrum.weight_value_provider_func = kmer_count_from_tag_count 
+            spectrum_data = build(kmer_spectrum, use="singlethread")
         else:
-            distdata = build(distob, proc_pool_size=num_processes)
+            spectrum_data = build(kmer_spectrum, proc_pool_size=num_processes)
             
-        distob.save(get_save_filename(datafile, builddir))
+        kmer_spectrum.save(get_save_filename(datafile, builddir))
             
-        print "Distribution %s has %d points distributed over %d intervals, stored in %d parts"%(get_save_filename(datafile, builddir), distob.point_weight, len(distdata), len(distob.part_dict))
+        print "spectrum %s has %d points distributed over %d intervals, stored in %d parts"%(get_save_filename(datafile, builddir), kmer_spectrum.point_weight, len(spectrum_data), len(kmer_spectrum.part_dict))
 
     return get_save_filename(datafile, builddir)
 
 
 def use_kmer_prbdf(picklefile):
-    distob = Distribution.load(picklefile)
-    distdata = distob.get_distribution()
-    for (interval, freq) in distdata.items():
+    kmer_spectrum = spectrum.load(picklefile)
+    spectrum_data = kmer_spectrum.get_distribution()
+    for (interval, freq) in spectrum_data.items():
         print interval, freq
 
 def get_save_filename(input_filename, builddir):
@@ -280,24 +280,24 @@ def get_reverse_complement(kmer):
     return kmer.upper()
     
     
-def build_kmer_distributions(options):
+def build_kmer_spectra(options):
         
-    distribution_names = []
+    spectrum_names = []
     for file_name in options["file_names"]:
-        distribution_names.append(build_kmer_distribution(file_name, options["kmer_regexps"], options["sampling_proportion"], \
+        spectrum_names.append(build_kmer_spectrum(file_name, options["kmer_regexps"], options["sampling_proportion"], \
                                                           options["num_processes"], options["builddir"], options["reverse_complement"], \
                                                           options["kmer_size"], options["input_driver_config"]))
 
-    return distribution_names
+    return spectrum_names
 
 
-def summarise_distributions(distributions, options):
+def summarise_spectra(distributions, options):
 
     measure = "frequency"
     if options["summary_type"] in ["zipfian","entropy"]:
         measure = "unsigned_information"
 
-    kmer_intervals = Distribution.get_intervals(distributions, options["num_processes"])
+    kmer_intervals = spectrum.get_intervals(distributions, options["num_processes"])
 
     if options["alphabet"] is not None:
         kmer_intervals1 = [ interval for interval in kmer_intervals if re.search("^[%(alphabet)s]+$"%options , interval[0], re.IGNORECASE) is not None ]
@@ -309,7 +309,7 @@ def summarise_distributions(distributions, options):
     print "summarising %s , %d kmers across %s"%(measure, len(kmer_intervals), str(distributions))
 
 
-    sample_measures = Distribution.get_projections(distributions, kmer_intervals, measure, False, options["num_processes"])
+    sample_measures = spectrum.get_projections(distributions, kmer_intervals, measure, False, options["num_processes"])
     zsample_measures = itertools.izip(*sample_measures)
     sample_name_iter = [tuple([os.path.splitext(os.path.basename(distribution))[0] for distribution in distributions])]
     zsample_measures = itertools.chain(sample_name_iter, zsample_measures)
@@ -328,7 +328,7 @@ def summarise_distributions(distributions, options):
 
         # triplicate zsample_measures (0 used to get ranks; 1 used to output measures; 3 used to get distances)
         zsample_measures_dup = itertools.tee(zsample_measures,3)
-        ranks = Distribution.get_rank_iter(zsample_measures_dup[0])
+        ranks = spectrum.get_rank_iter(zsample_measures_dup[0])
 
         # duplicate ranks (0 used to output; 1 used to get distances)
         ranks_dup = itertools.tee(ranks, 2)
@@ -347,8 +347,8 @@ def summarise_distributions(distributions, options):
 
         # get distances
         print >> outfile , "*** distances *** :"
-        (distance_matrix, point_names_sorted) = Distribution.get_zipfian_distance_matrix(zsample_measures_dup[2], ranks_dup[1])
-        Distribution.print_distance_matrix(distance_matrix, point_names_sorted, outfile)
+        (distance_matrix, point_names_sorted) = spectrum.get_zipfian_distance_matrix(zsample_measures_dup[2], ranks_dup[1])
+        spectrum.print_distance_matrix(distance_matrix, point_names_sorted, outfile)
     else:
         print "warning, unknown summary type %(summary_type)s, no summary available"%options
         
@@ -381,25 +381,25 @@ examples :
 
 
 # make a table summarising base composition of all files with .fa suffix in current folder
-kmer_entropy.py -t frequency -k 1 ./*.fa
+kmer_prism.py -t frequency -k 1 ./*.fa
 
 # make a table summarising 6-mer self-information for all fastq files in /data/project2
 # , based on a random sample of 1/1000 seqs, split over 20 processes
-kmer_entropy.py -t entropy -k 6 -p 20 -s .001 /data/project2/*.fastq.gz
+kmer_prism.py -t entropy -k 6 -p 20 -s .001 /data/project2/*.fastq.gz
 
 # as above , but now also include 2 reference genomes. If this is run in the same folder as the
 # above, the script will re-use the previously cached results, so will only
 # have to analyse the kmer distribution for the two new files listed. The two new files will not
 # be randomly sampled (no -s option specified), however for the existing files the cached results are
 # based on a random sample.  
-kmer_entropy.py -t entropy -k 6 -p 20  /data/project2/*.fastq.gz /references/ref1.fa /references/ref2.fa
+kmer_prism.py -t entropy -k 6 -p 20  /data/project2/*.fastq.gz /references/ref1.fa /references/ref2.fa
 
 # obtain a text file containing self-information and ranks for 6-mers in a tag count file
-./kmer_entropy.py -t zipfian -k 6 -p 1 -o tag_zipfian.txt -x /dataset/hiseq/active/bin/hiseq_pipeline/cat_tag_count.sh /dataset/hiseq/scratch/postprocessing/151016_D00390_0236_AC6JURANXX.gbs/SQ0124.processed_sample/uneak/tagCounts/G88687_C6JURANXX_1_124_X4.cnt
+./kmer_prism.py -t zipfian -k 6 -p 1 -o tag_zipfian.txt -x /dataset/hiseq/active/bin/hiseq_pipeline/cat_tag_count.sh /dataset/hiseq/scratch/postprocessing/151016_D00390_0236_AC6JURANXX.gbs/SQ0124.processed_sample/uneak/tagCounts/G88687_C6JURANXX_1_124_X4.cnt
 
 # as above but feeed in tag count data from a text file, use "cat" to list it (but need .cnt suffix so
 # program expects the stream to contain tag counts
-./kmer_entropy.py -t frequency -k 6 -p 1 -o test_freqs.txt -x cat tagtestdata_as_text.cnt
+./kmer_prism.py -t frequency -k 6 -p 1 -o test_freqs.txt -x cat tagtestdata_as_text.cnt
 
 
 
@@ -458,9 +458,9 @@ def main():
     options = get_options()
     print options 
 
-    distributions = build_kmer_distributions(options)
+    distributions = build_kmer_spectra(options)
 
-    summarise_distributions(distributions, options)   
+    summarise_spectra(distributions, options)   
     
     return 
 
