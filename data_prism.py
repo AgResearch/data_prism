@@ -712,9 +712,10 @@ def default_spectrum_value_provider(interval, *xargs):
 
 def get_file_type(file_name):
     """
-    infer  file type from file name for some common file formats, and return a canonical
+    Make best efforts to infer  file type from file name for some common file formats, and return a canonical
     type name. For other file formats, just return the suffix (e.g.
-    foo.bar and foo.BAR would both return .bar in that case)
+    foo.bar and foo.BAR would both return .bar in that case). May not infer correctly for 
+    some names (e.g. blah.fastq.fasta etc)
     """
     if re.search("(\.fasta|\.fa|\.fna|\.faa|\.seq)(\.|$)", file_name, re.I) != None:
         return "fasta"
