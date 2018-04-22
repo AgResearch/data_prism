@@ -9,7 +9,7 @@ from random import random
 from multiprocessing import Pool
 import subprocess
 import argparse
-from data_prism import spectrum , build, bin_discrete_value, get_text_stream , get_file_type,  PROC_POOL_SIZE
+from data_prism import prism , build, bin_discrete_value, get_text_stream , get_file_type,  PROC_POOL_SIZE
 
 
 class kmer_prism_exception(exceptions.Exception):
@@ -203,7 +203,7 @@ def kmer_count_from_tag_count(tag_count_tuple, *args):
         strseq = tag
         kmer_dict = {}
         overlap_patterns = pattern_window_length * [""]        
-        kmer_iter = (strseq[i:i+pattern_window_length] for i in range(0,1+len(strseq)-pattern_window_length)
+        kmer_iter = (strseq[i:i+pattern_window_length] for i in range(0,1+len(strseq)-pattern_window_length))
         for kmer in kmer_iter:
             if kmer not in overlap_patterns:
                 overlap_patterns.insert(0,kmer)
@@ -224,44 +224,46 @@ def kmer_count_from_tag_count(tag_count_tuple, *args):
 #********************************************************************
 # general analysis / summary methods 
 #********************************************************************
-def build_kmer_spectrum(datafile, kmer_patterns, sampling_proportion, num_processes, builddir, reverse_complement, pattern_window_length, input_driver_config):
+def build_kmer_spectrum(datafile, kmer_patterns, sampling_proportion, num_processes, builddir, reverse_complement, pattern_window_length, input_driver_config, input_filetype=None):
 
     if os.path.exists(get_save_filename(datafile, builddir)):
         print("build_kmer_spectrum- skipping %s as already done"%datafile)
-        kmer_spectrum = spectrum.load(get_save_filename(datafile, builddir))
-        kmer_spectrum.summary()
+        kmer_prism = prism.load(get_save_filename(datafile, builddir))
+        kmer_prism.summary()
         
     else:
         print("build_kmer_spectrum- processing %s"%datafile)
-        filetype = get_file_type(datafile)
-        kmer_spectrum = spectrum([datafile], num_processes)
-        kmer_spectrum.interval_locator_parameters = (None,)
-        kmer_spectrum.interval_locator_funcs = (bin_discrete_value,)
-        kmer_spectrum.assignments_files = ("kmer_binning.txt",)
-        kmer_spectrum.file_to_stream_func = seq_from_sequence_file
-        kmer_spectrum.file_to_stream_func_xargs = [filetype,sampling_proportion]
-        kmer_spectrum.weight_value_provider_func = kmer_count_from_sequence
-        kmer_spectrum.weight_value_provider_func_xargs = [reverse_complement, pattern_window_length, 1] + kmer_patterns        
+        filetype = input_filetype
+        if filetype is None:
+            filetype = get_file_type(datafile)
+        kmer_prism = prism([datafile], num_processes)
+        kmer_prism.interval_locator_parameters = (None,)
+        kmer_prism.interval_locator_funcs = (bin_discrete_value,)
+        kmer_prism.assignments_files = ("kmer_binning.txt",)
+        kmer_prism.file_to_stream_func = seq_from_sequence_file
+        kmer_prism.file_to_stream_func_xargs = [filetype,sampling_proportion]
+        kmer_prism.spectrum_value_provider_func = kmer_count_from_sequence
+        kmer_prism.spectrum_value_provider_func_xargs = [reverse_complement, pattern_window_length, 1] + kmer_patterns        
         
         if filetype == ".cnt":
             #print "DEBUG setting methods for count file"
-            kmer_spectrum.file_to_stream_func = tag_count_from_tag_count_file
-            kmer_spectrum.file_to_stream_func_xargs = [input_driver_config,sampling_proportion]
-            kmer_spectrum.weight_value_provider_func = kmer_count_from_tag_count 
-            spectrum_data = build(kmer_spectrum, use="singlethread")
+            kmer_prism.file_to_stream_func = tag_count_from_tag_count_file
+            kmer_prism.file_to_stream_func_xargs = [input_driver_config,sampling_proportion]
+            kmer_prism.spectrum_value_provider_func = kmer_count_from_tag_count 
+            spectrum_data = build(kmer_prism, use="singlethread")
         else:
-            spectrum_data = build(kmer_spectrum, proc_pool_size=num_processes)
+            spectrum_data = build(kmer_prism, proc_pool_size=num_processes)
             
-        kmer_spectrum.save(get_save_filename(datafile, builddir))
+        kmer_prism.save(get_save_filename(datafile, builddir))
             
-        print "spectrum %s has %d points distributed over %d intervals, stored in %d parts"%(get_save_filename(datafile, builddir), kmer_spectrum.point_weight, len(spectrum_data), len(kmer_spectrum.part_dict))
+        print "spectrum %s has %d points distributed over %d intervals, stored in %d parts"%(get_save_filename(datafile, builddir), kmer_prism.total_spectrum_value, len(spectrum_data), len(kmer_prism.part_dict))
 
     return get_save_filename(datafile, builddir)
 
 
 def use_kmer_prbdf(picklefile):
-    kmer_spectrum = spectrum.load(picklefile)
-    spectrum_data = kmer_spectrum.get_distribution()
+    kmer_prism = prism.load(picklefile)
+    spectrum_data = kmer_prism.get_distribution()
     for (interval, freq) in spectrum_data.items():
         print interval, freq
 
@@ -286,18 +288,18 @@ def build_kmer_spectra(options):
     for file_name in options["file_names"]:
         spectrum_names.append(build_kmer_spectrum(file_name, options["kmer_regexps"], options["sampling_proportion"], \
                                                           options["num_processes"], options["builddir"], options["reverse_complement"], \
-                                                          options["kmer_size"], options["input_driver_config"]))
+                                                          options["kmer_size"], options["input_driver_config"], options["input_filetype"]))
 
     return spectrum_names
 
 
 def summarise_spectra(distributions, options):
 
-    measure = "frequency"
+    measure = "raw"
     if options["summary_type"] in ["zipfian","entropy"]:
         measure = "unsigned_information"
 
-    kmer_intervals = spectrum.get_intervals(distributions, options["num_processes"])
+    kmer_intervals = prism.get_intervals(distributions, options["num_processes"])
 
     if options["alphabet"] is not None:
         kmer_intervals1 = [ interval for interval in kmer_intervals if re.search("^[%(alphabet)s]+$"%options , interval[0], re.IGNORECASE) is not None ]
@@ -309,7 +311,7 @@ def summarise_spectra(distributions, options):
     print "summarising %s , %d kmers across %s"%(measure, len(kmer_intervals), str(distributions))
 
 
-    sample_measures = spectrum.get_projections(distributions, kmer_intervals, measure, False, options["num_processes"])
+    sample_measures = prism.get_projections(distributions, kmer_intervals, measure, False, options["num_processes"])
     zsample_measures = itertools.izip(*sample_measures)
     sample_name_iter = [tuple([os.path.splitext(os.path.basename(distribution))[0] for distribution in distributions])]
     zsample_measures = itertools.chain(sample_name_iter, zsample_measures)
@@ -328,7 +330,7 @@ def summarise_spectra(distributions, options):
 
         # triplicate zsample_measures (0 used to get ranks; 1 used to output measures; 3 used to get distances)
         zsample_measures_dup = itertools.tee(zsample_measures,3)
-        ranks = spectrum.get_rank_iter(zsample_measures_dup[0])
+        ranks = prism.get_rank_iter(zsample_measures_dup[0])
 
         # duplicate ranks (0 used to output; 1 used to get distances)
         ranks_dup = itertools.tee(ranks, 2)
@@ -347,8 +349,8 @@ def summarise_spectra(distributions, options):
 
         # get distances
         print >> outfile , "*** distances *** :"
-        (distance_matrix, point_names_sorted) = spectrum.get_zipfian_distance_matrix(zsample_measures_dup[2], ranks_dup[1])
-        spectrum.print_distance_matrix(distance_matrix, point_names_sorted, outfile)
+        (distance_matrix, point_names_sorted) = prism.get_zipfian_distance_matrix(zsample_measures_dup[2], ranks_dup[1])
+        prism.print_distance_matrix(distance_matrix, point_names_sorted, outfile)
     else:
         print "warning, unknown summary type %(summary_type)s, no summary available"%options
         
@@ -417,6 +419,7 @@ kmer_prism.py -t entropy -k 6 -p 20  /data/project2/*.fastq.gz /references/ref1.
     parser.add_argument('-c', '--reverse_complement' , dest='reverse_complement', action='store_true', help="for each kmer tabulate the frequency or entropy of its reverse complement (default False)")
     parser.add_argument('-x', '--input_driver_config' , dest='input_driver_config', default=None, help="this is use to configure input from custom file formats such as tassel count files")    
     parser.add_argument('-a', '--alphabet' , dest='alphabet', default=None, type=str, help="alphabet used to filter kmers when summarising distributions (not applied when building distribution)")
+    parser.add_argument('-f', '--input_filetype' , dest='input_filetype', default=None, type=str, choices=["fasta", "fastq"], help="optionally specify input format ( if not specified will try to guess)")
 
     
     
