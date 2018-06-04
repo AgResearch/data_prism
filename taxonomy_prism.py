@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/env python2.7
 
 import itertools,os,re,argparse,string,sys
 sys.path.append('/usr/local/agr-scripts')
@@ -53,7 +53,7 @@ def tax_cmp(x,y):
         ord = cmp(x[1], y[1])
     return ord
 
-def get_sample_tax_distribution(sample_tax_summaries, measure):
+def get_sample_tax_distribution(sample_tax_summaries, measure,rownames):
     sample_tax_lists = [ Distribution.load(sample_tax_summary).get_distribution().keys() for sample_tax_summary in sample_tax_summaries ] 
     all_taxa = set( reduce(lambda x,y:x+y, sample_tax_lists))
     all_taxa_list = list(all_taxa)
@@ -62,16 +62,25 @@ def get_sample_tax_distribution(sample_tax_summaries, measure):
     #print all_taxa_list
 
     if measure == "frequency":
-        #sample_tax_distributions = [["%s\t%s"%item for item in all_taxa_list]] + [ Distribution.load(sample_tax_summary).get_frequency_projection(all_taxa_list) for sample_tax_summary in sample_tax_summaries]
-        sample_tax_distributions = [[re.sub("'|#","","%s\t%s"%item) for item in all_taxa_list]] + [ Distribution.load(sample_tax_summary).get_frequency_projection(all_taxa_list) for sample_tax_summary in sample_tax_summaries]
-    else:
-        #sample_tax_distributions = [["%s\t%s"%item for item in all_taxa_list]] + [ Distribution.load(sample_tax_summary).get_unsigned_information_projection(all_taxa_list) for sample_tax_summary in sample_tax_summaries]
-        sample_tax_distributions = [[re.sub("'|#","","%s\t%s"%item) for item in all_taxa_list]] + [ Distribution.load(sample_tax_summary).get_unsigned_information_projection(all_taxa_list) for sample_tax_summary in sample_tax_summaries]
+        if not rownames:
+            sample_tax_distributions = [[re.sub("'|#","","%s\t%s"%item) for item in all_taxa_list]] + [ Distribution.load(sample_tax_summary).get_frequency_projection(all_taxa_list) for sample_tax_summary in sample_tax_summaries]
+        else:
+            sample_tax_distributions = [[re.sub("'|#","","%s_%s"%item) for item in all_taxa_list]] + [ Distribution.load(sample_tax_summary).get_frequency_projection(all_taxa_list) for sample_tax_summary in sample_tax_summaries]
 
-    #print sample_tax_distributions
+    else:
+        if not rownames:
+            sample_tax_distributions = [[re.sub("'|#","","%s\t%s"%item) for item in all_taxa_list]] + [ Distribution.load(sample_tax_summary).get_unsigned_information_projection(all_taxa_list) for sample_tax_summary in sample_tax_summaries]
+        else:
+            sample_tax_distributions = [[re.sub("'|#","","%s_%s"%item) for item in all_taxa_list]] + [ Distribution.load(sample_tax_summary).get_unsigned_information_projection(all_taxa_list) for sample_tax_summary in sample_tax_summaries]
+
+
 
     fd_iter = itertools.izip(*sample_tax_distributions)
-    heading = itertools.izip(*[["Kingdom\tFamily"]]+[[re.split("\.",os.path.basename(path.strip()))[0]] for path in sample_tax_summaries])
+    if not rownames:
+        heading = itertools.izip(*[["Kingdom\tFamily"]]+[[re.split("\.",os.path.basename(path.strip()))[0]] for path in sample_tax_summaries])
+    else:
+        heading = itertools.izip(*[["Kingdom_Family"]]+[[re.split("\.",os.path.basename(path.strip()))[0]] for path in sample_tax_summaries])
+
     #print heading
 
     fd_iter = itertools.chain(heading, fd_iter)
@@ -154,6 +163,7 @@ INV-D00390:220:C6GKKANXX:8:1114:18656:89413     gi|688443106|emb|LL194098.1|    
                    choices=["sample_summaries", "summary_table"],help="summary type (default: sample_summaries")
     parser.add_argument('--measure', dest='measure', default="frequency", \
                    choices=["frequency", "information"],help="measure (default: frequency")
+    parser.add_argument('--rownames' , dest='rownames', default=False,action='store_true', help="combine kingdom and family fields to make a rowname")
 
 
     args = vars(parser.parse_args())
@@ -178,7 +188,7 @@ def main():
             write_summaries(filename,tax_dist)
     elif args["summary_type"] == "summary_table" :
         #print "summarising %s"%str(args["filename"])
-        get_sample_tax_distribution(args["filename"], args["measure"])
+        get_sample_tax_distribution(args["filename"], args["measure"], args["rownames"])
 
     
 
