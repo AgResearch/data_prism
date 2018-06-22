@@ -263,6 +263,30 @@ draw_entropy_heatmap <- function(datamatrix, output_folder, heatmap_image_file, 
        keysize=1.0, margin=c(40,60), cexRow=1.3, cexCol=1.3, 
        lmat=rbind(  c(4,3,0 ), c(2, 1, 0) ), lwid=c(.2, .8, 0 ), lhei=c(.5, 3) , labRow = rowLabels, labCol=colLabels)
    dev.off()
+
+   write.table(colnames(datamatrix)[hm$colInd[1:length(hm$colInd)]] , file="samplenames_ordered_as_heatmap.txt",row.names=TRUE,sep="\t")
+   write.table(rownames(datamatrix)[hm$rowInd[length(hm$rowInd):1]] , file="6mers_ordered_as_heatmap.txt",row.names=TRUE,sep="\t")
+
+   orderedmat=datamatrix[hm$rowInd[length(hm$rowInd):1],]
+   orderedmat=orderedmat[,hm$colInd[1:length(hm$colInd)]]  # NB, the column labels come out reversed !
+   write.table(orderedmat,file="data_ordered_as_heatmap.txt",row.names=TRUE,sep="\t")
+
+   clust = as.hclust(hm$colDendrogram)
+   sink("heatmap_sample_clustering_support.txt")
+   print("clust$merge:")
+   print(clust$merge)
+   print("clust$height:")
+   print(clust$height)
+   print("clust$order")
+   print(clust$order)
+   print("clust$labels")
+   print(clust$labels)
+   sink()
+   write.table(cutree(clust, 1:dim(datamatrix)[2]),file="heatmap_sample_clusters.txt",row.names=TRUE,sep="\t")  # ref https://stackoverflow.com/questions/18354501/how-to-get-member-of-clusters-from-rs-hclust-heatmap-2
+
+   # output the information matrix with the rows and columns ordered as per the heatmap
+   write.table(datamatrix[hm$rowInd[length(hm$rowInd):1] , hm$colInd[1:length(hm$colInd)]],file="information_sorted_per_heatmap.txt", row.names=TRUE, col.names=TRUE, sep="\t")
+
 }
 
 
