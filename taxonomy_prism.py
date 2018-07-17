@@ -1,8 +1,10 @@
 #!/usr/bin/env python2.7
 
 import itertools,os,re,argparse,string,sys
-sys.path.append('/usr/local/agr-scripts')
-from prbdf import Distribution , build, from_tab_delimited_file, bin_discrete_value
+#sys.path.append('/usr/local/agr-scripts')
+#from prbdf import Distribution , build, from_tab_delimited_file, bin_discrete_value
+from data_prism import prism, build, from_tab_delimited_file, bin_discrete_value
+
 
 def my_hit_provider(filename, *xargs):
     """
@@ -10,22 +12,30 @@ def my_hit_provider(filename, *xargs):
     or "no hit" . Note that sometimes this format reports multiple hits to the same target
     - we only want the top hit - this is provided by the next method
     """
-    tuple_stream = from_tab_delimited_file(filename,*xargs)
+    weighting_method = xargs[0]
+    tuple_stream = from_tab_delimited_file(filename,*xargs[1:])
 
     atuple = tuple_stream.next()
     query = ""
     while True:
+        weight = 1
         query_match = re.search("^#\s+Query:\s+(.*)$",atuple[0].strip())
         if query_match is not None:
             query = query_match.groups()[0]
         if re.search(" 0 hits",atuple[0],re.IGNORECASE) is not None:
-            yield (query,'No hits','No hits')
+            if weighting_method == "tag_count":
+                weighting_match = re.search("count=(\d+)\s*$", query)
+                weight = int(weighting_match.groups()[0])
+            yield ((query,'No hits','No hits'),weight)
         elif atuple[1:] == (None,None):
             pass
         elif atuple[1] is None or atuple[2] is None:
             raise Exception("error - unexpected results %s from blast output - incomplete taxonomy tuple"%str(atuple))        
         else:
-            yield atuple
+            if weighting_method == "tag_count":
+                weighting_match = re.search("count=(\d+)\s*$", query)
+                weight = int(weighting_match.groups()[0])
+            yield (atuple, weight)
         
         atuple = tuple_stream.next()
 
@@ -33,16 +43,29 @@ def my_top_hit_provider(filename, *xargs):
     """
     takes a stream which may contain multiple hits, and yields just the top hit in each group
     """
-    groups = itertools.groupby(my_hit_provider(filename, *xargs), lambda x:x[0])    
-    top_hits = (group.next()[1:] for (key, group) in groups)
-    return top_hits    
+    groups = itertools.groupby(my_hit_provider(filename, *xargs), lambda x:x[0][0])    
+    top_hits = (group.next() for (key, group) in groups)
+    return top_hits
 
-def build_tax_distribution(datafile):
-    distob = Distribution([datafile], 1)
+
+def my_spectrum_value_provider(interval_weight, *xargs):
+    """
+    this takes the items from top hit provider - e.g.
+    (('seq_25449', 'Eukaryota', 'Pacific oyster'), 52)
+    and transforms to e.g.
+    ((52, 'seq_25449', 'Eukaryota', 'Pacific oyster'),)
+  
+    """
+    #print interval_weight
+    return ((interval_weight[1],interval_weight[0][1],interval_weight[0][2]),)       
+
+def build_tax_distribution(datafile, weighting_method = None):
+    distob = prism([datafile], 1)
     distob.file_to_stream_func = my_top_hit_provider
     #distob.DEBUG = True
-    distob.file_to_stream_func_xargs = [0,7,6] # i.e. pick out first field, then kingdom, comnames
+    distob.file_to_stream_func_xargs = [weighting_method,0,7,6] # i.e. pick out first field, then kingdom, comnames
     distob.interval_locator_funcs = [bin_discrete_value, bin_discrete_value]
+    distob.spectrum_value_provider_func = my_spectrum_value_provider
     distdata = build(distob,"singlethread")
     distob.save("%s.pickle"%datafile)
     return distdata
@@ -54,7 +77,7 @@ def tax_cmp(x,y):
     return ord
 
 def get_sample_tax_distribution(sample_tax_summaries, measure,rownames):
-    sample_tax_lists = [ Distribution.load(sample_tax_summary).get_distribution().keys() for sample_tax_summary in sample_tax_summaries ] 
+    sample_tax_lists = [ prism.load(sample_tax_summary).get_spectrum().keys() for sample_tax_summary in sample_tax_summaries ] 
     all_taxa = set( reduce(lambda x,y:x+y, sample_tax_lists))
     all_taxa_list = list(all_taxa)
     all_taxa_list.sort(tax_cmp)
@@ -63,15 +86,15 @@ def get_sample_tax_distribution(sample_tax_summaries, measure,rownames):
 
     if measure == "frequency":
         if not rownames:
-            sample_tax_distributions = [[re.sub("'|#","","%s\t%s"%item) for item in all_taxa_list]] + [ Distribution.load(sample_tax_summary).get_frequency_projection(all_taxa_list) for sample_tax_summary in sample_tax_summaries]
+            sample_tax_distributions = [[re.sub("'|#","","%s\t%s"%item) for item in all_taxa_list]] + [ prism.load(sample_tax_summary).get_raw_projection(all_taxa_list) for sample_tax_summary in sample_tax_summaries]
         else:
-            sample_tax_distributions = [[re.sub("'|#","","%s_%s"%item) for item in all_taxa_list]] + [ Distribution.load(sample_tax_summary).get_frequency_projection(all_taxa_list) for sample_tax_summary in sample_tax_summaries]
+            sample_tax_distributions = [[re.sub("'|#","","%s_%s"%item) for item in all_taxa_list]] + [ prism.load(sample_tax_summary).get_raw_projection(all_taxa_list) for sample_tax_summary in sample_tax_summaries]
 
     else:
         if not rownames:
-            sample_tax_distributions = [[re.sub("'|#","","%s\t%s"%item) for item in all_taxa_list]] + [ Distribution.load(sample_tax_summary).get_unsigned_information_projection(all_taxa_list) for sample_tax_summary in sample_tax_summaries]
+            sample_tax_distributions = [[re.sub("'|#","","%s\t%s"%item) for item in all_taxa_list]] + [ prism.load(sample_tax_summary).get_unsigned_information_projection(all_taxa_list) for sample_tax_summary in sample_tax_summaries]
         else:
-            sample_tax_distributions = [[re.sub("'|#","","%s_%s"%item) for item in all_taxa_list]] + [ Distribution.load(sample_tax_summary).get_unsigned_information_projection(all_taxa_list) for sample_tax_summary in sample_tax_summaries]
+            sample_tax_distributions = [[re.sub("'|#","","%s_%s"%item) for item in all_taxa_list]] + [ prism.load(sample_tax_summary).get_unsigned_information_projection(all_taxa_list) for sample_tax_summary in sample_tax_summaries]
 
 
 
@@ -120,6 +143,14 @@ def write_summaries(basename,tax_dist):
         kingdom_writer.close()
     summary_writer.close()
 
+def debug(options):
+    #test_iter = my_hit_provider(options["filenames"][0], *[None,0,7,6])
+    test_iter = my_top_hit_provider(options["filenames"][0], *["tag_count",0,7,6])
+
+    for item in test_iter:
+        print item
+        #print my_spectrum_value_provider(item, *[])
+
 class outer_list(list):        
     def __getitem__(self, key):
         if key >= self.__len__():
@@ -155,15 +186,20 @@ INV-D00390:220:C6GKKANXX:8:1114:18656:89413     gi|688443106|emb|LL194098.1|    
 .
 .
 .
+optionally, the query line can specify a weighting to be used as a count instead of 1 - e.g.
+# Query: seq_26674 count=16
+
+(this is used when blasting queries such as unique tags)
 """
 
     parser = argparse.ArgumentParser(description=description, epilog=long_description, formatter_class = argparse.RawDescriptionHelpFormatter)
-    parser.add_argument('filename', type=str, nargs="*",help='input file of blast hits (optionally compressed with gzip)')    
+    parser.add_argument('filenames', type=str, nargs="*",help='input file of blast hits (optionally compressed with gzip)')    
     parser.add_argument('--summary_type', dest='summary_type', default="sample_summaries", \
                    choices=["sample_summaries", "summary_table"],help="summary type (default: sample_summaries")
     parser.add_argument('--measure', dest='measure', default="frequency", \
                    choices=["frequency", "information"],help="measure (default: frequency")
     parser.add_argument('--rownames' , dest='rownames', default=False,action='store_true', help="combine kingdom and family fields to make a rowname")
+    parser.add_argument('--weighting_method' , dest='weighting_method', default=None,choices=["tag_count"],help="weighting method")
 
 
     args = vars(parser.parse_args())
@@ -180,15 +216,16 @@ def main():
     #    print record
 
     #return
+    #debug(args)
 
     if args["summary_type"] == "sample_summaries" :
-        for filename in  args["filename"]:
-            tax_dist = build_tax_distribution(filename)
+        for filename in  args["filenames"]:
+            tax_dist = build_tax_distribution(filename, weighting_method = args["weighting_method"])
             print tax_dist
             write_summaries(filename,tax_dist)
     elif args["summary_type"] == "summary_table" :
         #print "summarising %s"%str(args["filename"])
-        get_sample_tax_distribution(args["filename"], args["measure"], args["rownames"])
+        get_sample_tax_distribution(args["filenames"], args["measure"], args["rownames"])
 
     
 
