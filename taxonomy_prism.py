@@ -24,8 +24,8 @@ def my_hit_provider(filename, *xargs):
             query = query_match.groups()[0]
         if re.search(" 0 hits",atuple[0],re.IGNORECASE) is not None:
             if weighting_method == "tag_count":
-                weighting_match = re.search("count=(\d+)\s*$", query)
-                weight = int(weighting_match.groups()[0])
+                weighting_match = re.search("count=(\d*\.*\d*)\s*$", query)
+                weight = float(weighting_match.groups()[0])
             yield ((query,'No hits','No hits'),weight)
         elif atuple[1:] == (None,None):
             pass
@@ -33,8 +33,8 @@ def my_hit_provider(filename, *xargs):
             raise Exception("error - unexpected results %s from blast output - incomplete taxonomy tuple"%str(atuple))        
         else:
             if weighting_method == "tag_count":
-                weighting_match = re.search("count=(\d+)\s*$", query)
-                weight = int(weighting_match.groups()[0])
+                weighting_match = re.search("count=(\d*\.*\d*)\s*$", query)
+                weight = float(weighting_match.groups()[0])
             yield (atuple, weight)
         
         atuple = tuple_stream.next()
