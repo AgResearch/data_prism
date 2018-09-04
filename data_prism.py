@@ -209,7 +209,7 @@ class prism(object):
         # calulate an "approximate_zero"  - it is half the minimum raw value in any interval of the spectrum
         values = self.spectrum.values()
         if len(values) > 0:
-            self.approximate_zero = min(self.spectrum.values())/2.0
+            self.approximate_zero = max(0.5, min(self.spectrum.values())/2.0)
         else:
             self.approximate_zero = 0.5
             self.total_spectrum_value = self.approximate_zero 
@@ -618,6 +618,10 @@ def p_get_unsigned_information_projection((spectrum, intervals, return_intervals
 
     # all intervals projected onto missing get spectrum_value of approximate_zero (e.g. often .5) 
     # (but do not affect the projection of other intervals)
+
+    if total_spectrum_value == 0:
+        total_spectrum_value = spectrum.approximate_zero
+
     for index in range(len(projection)):
         if projection[index] == 0:
             projection[index] = -1.0 * math.log(spectrum.approximate_zero / float(total_spectrum_value), 2.0)
