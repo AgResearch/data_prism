@@ -261,6 +261,95 @@ def build_kmer_spectrum(datafile, kmer_patterns, sampling_proportion, num_proces
     return get_save_filename(datafile, builddir)
 
 
+def assemble_kmer_spectrum(kmer_list_file, sequence_file, sequence_file_type, sampling_proportion, input_driver_config = None,counts_file = None):
+
+    # get the kmer list
+    with open(kmer_list_file , "r") as kmer_stream:
+        kmer_list = [ item.strip() for item in kmer_stream if len(item.strip()) > 0 ]
+
+    # get an iter of (sequence, count)
+    if sequence_file_type is None:
+        filetype = get_file_type(sequence_file)
+    file_to_stream_func = seq_from_sequence_file
+    file_to_stream_func_xargs = [filetype,sampling_proportion]
+    if filetype == ".cnt":
+        file_to_stream_func = tag_count_from_tag_count_file
+        file_to_stream_func_xargs = [input_driver_config,sampling_proportion]
+        zsequences_counts_stream=file_to_stream_func(sequence_file, *file_to_stream_func_xargs)
+    else:
+        if counts_file is None:
+            zsequences_counts_stream = itertools.izip(file_to_stream_func(sequence_file, *file_to_stream_func_xargs), itertools.repeat(1))
+        else:
+            with open(counts_file,"r") as counts_stream:
+                counts_iter = (int(item.strip()) for item in counts_stream if len(item.strip()) > 0)
+                zsequences_counts_stream = itertools.izip(file_to_stream_func(sequence_file, *file_to_stream_func_xargs), counts_iter)
+                
+    #for record in zsequences_counts_stream:
+    #    print record
+    #
+    #return
+        
+    unassembled_dict = {} # key is a tuple of supporting kmers, value is count 
+
+    pattern_window_length = max( len(kmer) for kmer in kmer_list)
+    if pattern_window_length != min( len(kmer) for kmer in kmer_list):
+        raise trim_exception("error -  all kmers in supporting list mustbe the same length")
+    
+    for (sequence, sequence_count) in zsequences_counts_stream:      # z prefix denotes a zipped stream  - returns tuple of (seq, count)
+        # analyse sequence     
+        # slide the window along the sequence and accumulate exact matches to members of patterns.
+        #print sequence, sequence_count
+        strseq = str(sequence.seq)
+        supporting_run = []
+        supporting_runs = []
+        kmer_iter = (strseq[i:i+pattern_window_length] for i in range(0,1+len(strseq)-pattern_window_length))
+        #print "assembling %s using %s"%(str(kmer_list), strseq)
+        for kmer in kmer_iter:
+            #print "checking %s"%kmer
+            if kmer in kmer_list:
+                #print "added"
+                supporting_run.append(kmer) 
+            else:
+                if len(supporting_run) > 0:   # conclude this supporting run and append to the list of supporting runs
+                    supporting_runs.append(supporting_run)
+                    supporting_run = []
+
+        # check for a supporting run that included the last kmer
+        if len(supporting_run) > 0:
+           supporting_runs.append(supporting_run)
+
+        # if there are any supporting runs, store the longest
+        if len(supporting_runs) > 0:
+            supporting_runs = sorted(supporting_runs, lambda a,b:cmp(len(a), len(b)), None, True)
+            best_supporting_run = tuple(supporting_runs[0])
+            unassembled_dict[best_supporting_run] = sequence_count + unassembled_dict.setdefault(best_supporting_run,0)
+
+    # summarise the length distribution of supporting kmer runs 
+    unassembled_dist = {}
+    for (kmer_tuple, count) in unassembled_dict.items():
+        unassembled_dist[len(kmer_tuple)] = count + unassembled_dist.setdefault(len(kmer_tuple),0)
+
+    
+
+    # assemble each of the runs 
+    assembled_dict = {}
+    for (kmer_tuple, count)in unassembled_dict.items():
+        if len(kmer_tuple) == 0:
+            assembly = ""
+        elif len(kmer_tuple) == 1:
+            assembly = kmer_tuple[0]
+        else:
+            assembly = reduce(lambda x,y:x+y[-1],kmer_tuple[1:],kmer_tuple[0])
+        assembled_dict[assembly] = count
+    
+    print "\n\n\n"
+    for key in sorted(unassembled_dist.keys()):
+        print "%s\t%s"%(key, unassembled_dist[key])
+
+    print "\n\n\n"        
+    for key in sorted(assembled_dict.keys(),lambda x,y:cmp(len(x),len(y)),None,True):
+        print "%s\t%s"%(key, assembled_dict[key])
+
 def use_kmer_prbdf(picklefile):
     kmer_prism = prism.load(picklefile)
     spectrum_data = kmer_prism.get_distribution()
@@ -391,7 +480,8 @@ kmer_prism.py -t entropy -k 6 -p 20 -s .001 /data/project2/*.fastq.gz
 
 # as above , but now also include 2 reference genomes. If this is run in the same folder as the
 # above, the script will re-use the previously cached results, so will only
-# have to analyse the kmer distribution for the two new files listed. The two new files will not
+# have to analyse the kmer distribution for the two new files listed. The       if filetype is None:
+            filetype = get_file_type(datafile)two new files will not
 # be randomly sampled (no -s option specified), however for the existing files the cached results are
 # based on a random sample.  
 kmer_prism.py -t entropy -k 6 -p 20  /data/project2/*.fastq.gz /references/ref1.fa /references/ref2.fa
@@ -408,8 +498,8 @@ kmer_prism.py -t entropy -k 6 -p 20  /data/project2/*.fastq.gz /references/ref1.
                                                                             
     """
     parser = argparse.ArgumentParser(description=description, epilog=long_description, formatter_class = argparse.RawDescriptionHelpFormatter)
-    parser.add_argument('file_names', type=str, nargs='+',metavar="filename", help='list of files to summarise')
-    parser.add_argument('-t', '--summary_type' , dest='summary_type', default="frequency", choices=["frequency", "entropy", "ranks", "zipfian"],help="type of summary")
+    parser.add_argument('file_names', type=str, nargs='+',metavar="filename", help='list of files to process')
+    parser.add_argument('-t', '--summary_type' , dest='summary_type', default="frequency", choices=["frequency", "entropy", "ranks", "zipfian", "assembly", "test"],help="type of summary")
     parser.add_argument('-k', '--kmer_size' , dest='kmer_size', default=None, type=int, help="kmer size (default None)")
     parser.add_argument('-r', '--kmer_regexp_list' , dest='kmer_regexps', default=None, type=str, help="list of regular expressions (not currently supported)")
     parser.add_argument('-b', '--build_dir' , dest='builddir', default=".", type=str, help="build folder (default '.')")
@@ -420,6 +510,10 @@ kmer_prism.py -t entropy -k 6 -p 20  /data/project2/*.fastq.gz /references/ref1.
     parser.add_argument('-x', '--input_driver_config' , dest='input_driver_config', default=None, help="this is use to configure input from custom file formats such as tassel count files")    
     parser.add_argument('-a', '--alphabet' , dest='alphabet', default=None, type=str, help="alphabet used to filter kmers when summarising distributions (not applied when building distribution)")
     parser.add_argument('-f', '--input_filetype' , dest='input_filetype', default=None, type=str, choices=["fasta", "fastq"], help="optionally specify input format ( if not specified will try to guess)")
+    parser.add_argument('--kmer_listfile' , dest='kmer_listfile', default=None, type=str,  help="list of kmers for an assembly run")
+    parser.add_argument('--sequence_countfile' , dest='sequence_countfile', default=None, type=str,  help="sequence count file")
+    
+    
 
     
     
@@ -430,10 +524,11 @@ kmer_prism.py -t entropy -k 6 -p 20  /data/project2/*.fastq.gz /references/ref1.
         parser.error("num_processes must be between 1 and %d"%PROC_POOL_SIZE)
 
     # should specify either a kmer_size, or a list of patterns (but not both)
-    if args["kmer_size"] is None and args["kmer_regexps"] is None:
-        parser.error("should specify either kmer_size or a list of patterns")
-    elif args["kmer_size"] is not None and args["kmer_regexps"] is not None:
-        parser.error("should specify either kmer_size or a list of patterns but not both")
+    if args["summary_type"] != "assembly": 
+        if args["kmer_size"] is None and args["kmer_regexps"] is None:
+            parser.error("should specify either kmer_size or a list of patterns")
+        elif args["kmer_size"] is not None and args["kmer_regexps"] is not None:
+            parser.error("should specify either kmer_size or a list of patterns but not both")
         
     # either input file or distribution file should exist 
     for file_name in args["file_names"]:
@@ -455,16 +550,29 @@ kmer_prism.py -t entropy -k 6 -p 20  /data/project2/*.fastq.gz /references/ref1.
         
     return args
 
+def test(options):
+    for file_name in options["file_names"]:
+        seq_iter = SeqIO.parse(get_text_stream(datafile), filetype)
+        for seq in seq_iter:
+            print seq
+        
+
 
 def main():
 
     options = get_options()
-    print options 
+    print options
 
-    distributions = build_kmer_spectra(options)
+    if options["summary_type"] == "test":
+        
 
-    summarise_spectra(distributions, options)   
-    
+    if options["summary_type"] != "assembly":
+        distributions = build_kmer_spectra(options)
+        summarise_spectra(distributions, options)   
+    else:
+        assemble_kmer_spectrum(options["kmer_listfile"], options["file_names"][0], options["input_filetype"], options["sampling_proportion"], \
+                               options["input_driver_config"],options["sequence_countfile"])
+
     return 
 
     
