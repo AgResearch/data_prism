@@ -33,7 +33,11 @@ def kmer_count_from_sequence(sequence, *args):
 
     reverse_complement = args[0]
     pattern_window_length = args[1]  # optional - for fixed length patterns e.g. 6-mers etc, to speed up search
-    weight = args[2] # un-used currently 
+    if callable(args[2]):
+        weight=args[2](sequence)
+    else:
+        weight=args[2]
+       
     patterns = args[3:]
 
     #print "DEBUG sequence%s"%str(sequence)
@@ -46,9 +50,9 @@ def kmer_count_from_sequence(sequence, *args):
         kmer_iters = tuple((re.finditer(pattern, str(sequence.seq), re.I) for pattern in patterns))
         kmer_iters = (match.group() for match in itertools.chain(*kmer_iters))
         if not reverse_complement:
-            kmer_count_iter = ( ( len(list(kmer_iter)),kmer) for (kmer,kmer_iter) in itertools.groupby(kmer_iters, lambda kmer:kmer) )
+            kmer_count_iter = ( ( weight * len(list(kmer_iter)),kmer) for (kmer,kmer_iter) in itertools.groupby(kmer_iters, lambda kmer:kmer) )
         else:
-            kmer_count_iter = ( ( len(list(kmer_iter)),get_reverse_complement(kmer)) for (kmer,kmer_iter) in itertools.groupby(kmer_iters, lambda kmer:kmer) )
+            kmer_count_iter = ( ( weight * len(list(kmer_iter)),get_reverse_complement(kmer)) for (kmer,kmer_iter) in itertools.groupby(kmer_iters, lambda kmer:kmer) )
     else:
         # slide the window along the sequence and accumulate matching patterns.Note that unlike
         # the above regexp based search, this would count multiple instances of a pattern
@@ -68,7 +72,7 @@ def kmer_count_from_sequence(sequence, *args):
             overlap_patterns.pop()
 
             if kmer not in overlap_patterns[1:]:
-                kmer_dict[kmer] = 1 + kmer_dict.setdefault(kmer,0)
+                kmer_dict[kmer] = weight + kmer_dict.setdefault(kmer,0)
                 
         kmer_count_iter = ( (kmer_dict[kmer], kmer) for kmer in kmer_dict )
         
@@ -89,6 +93,19 @@ def seq_from_sequence_file(datafile, *args):
         
         
     return seq_iter
+
+def parse_weight_from_sequence_description(sequence):
+    # this is used where the fasta file is marked up with a count , and this ends up in the 
+    # description of the seq_record - e.g. where the sequence is from a gbs tag count file
+    # assumed the count is encoded like this in the description
+    # seq_28639 count=1.004008
+    weighting_match = re.search("count=(\d*\.*\d*)\s*$", sequence.description)
+    if weighting_match is not None:
+        weight = float(weighting_match.groups()[0])
+    else:
+        weight = 1.0
+
+    return weight
 
 
 #********************************************************************
@@ -224,7 +241,7 @@ def kmer_count_from_tag_count(tag_count_tuple, *args):
 #********************************************************************
 # general analysis / summary methods 
 #********************************************************************
-def build_kmer_spectrum(datafile, kmer_patterns, sampling_proportion, num_processes, builddir, reverse_complement, pattern_window_length, input_driver_config, input_filetype=None):
+def build_kmer_spectrum(datafile, kmer_patterns, sampling_proportion, num_processes, builddir, reverse_complement, pattern_window_length, input_driver_config, input_filetype=None, weighting_method = None):
 
     if os.path.exists(get_save_filename(datafile, builddir)):
         print("build_kmer_spectrum- skipping %s as already done"%datafile)
@@ -243,7 +260,11 @@ def build_kmer_spectrum(datafile, kmer_patterns, sampling_proportion, num_proces
         kmer_prism.file_to_stream_func = seq_from_sequence_file
         kmer_prism.file_to_stream_func_xargs = [filetype,sampling_proportion]
         kmer_prism.spectrum_value_provider_func = kmer_count_from_sequence
-        kmer_prism.spectrum_value_provider_func_xargs = [reverse_complement, pattern_window_length, 1] + kmer_patterns        
+
+        if weighting_method is None:
+            kmer_prism.spectrum_value_provider_func_xargs = [reverse_complement, pattern_window_length, 1] + kmer_patterns        
+        elif weighting_method == "tag_count":
+            kmer_prism.spectrum_value_provider_func_xargs = [reverse_complement, pattern_window_length, parse_weight_from_sequence_description] + kmer_patterns
         
         if filetype == ".cnt":
             #print "DEBUG setting methods for count file"
@@ -377,7 +398,7 @@ def build_kmer_spectra(options):
     for file_name in options["file_names"]:
         spectrum_names.append(build_kmer_spectrum(file_name, options["kmer_regexps"], options["sampling_proportion"], \
                                                           options["num_processes"], options["builddir"], options["reverse_complement"], \
-                                                          options["kmer_size"], options["input_driver_config"], options["input_filetype"]))
+                                                          options["kmer_size"], options["input_driver_config"], options["input_filetype"], options["weighting_method"]))
 
     return spectrum_names
 
@@ -512,9 +533,7 @@ kmer_prism.py -t entropy -k 6 -p 20  /data/project2/*.fastq.gz /references/ref1.
     parser.add_argument('-f', '--input_filetype' , dest='input_filetype', default=None, type=str, choices=["fasta", "fastq"], help="optionally specify input format ( if not specified will try to guess)")
     parser.add_argument('--kmer_listfile' , dest='kmer_listfile', default=None, type=str,  help="list of kmers for an assembly run")
     parser.add_argument('--sequence_countfile' , dest='sequence_countfile', default=None, type=str,  help="sequence count file")
-    
-    
-
+    parser.add_argument('--weighting_method' , dest='weighting_method', default=None, type=str,  choices=["tag_count"], help="weighting method")
     
     
     args = vars(parser.parse_args())
@@ -551,10 +570,12 @@ kmer_prism.py -t entropy -k 6 -p 20  /data/project2/*.fastq.gz /references/ref1.
     return args
 
 def test(options):
+    from Bio import SeqIO
     for file_name in options["file_names"]:
-        seq_iter = SeqIO.parse(get_text_stream(datafile), filetype)
+        filetype = get_file_type(file_name)
+        seq_iter = SeqIO.parse(get_text_stream(file_name), filetype)
         for seq in seq_iter:
-            print seq
+            print seq.description
         
 
 
@@ -564,6 +585,7 @@ def main():
     print options
 
     if options["summary_type"] == "test":
+        test(options)
         
 
     if options["summary_type"] != "assembly":
