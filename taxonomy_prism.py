@@ -18,6 +18,7 @@ def my_hit_provider(filename, *xargs):
     atuple = tuple_stream.next()
     query = ""
     while True:
+        #print "debug " + str(atuple)
         weight = 1
         query_match = re.search("^#\s+Query:\s+(.*)$",atuple[0].strip())
         if query_match is not None:
@@ -27,7 +28,7 @@ def my_hit_provider(filename, *xargs):
                 weighting_match = re.search("count=(\d*\.*\d*)\s*$", query)
                 weight = float(weighting_match.groups()[0])
             yield ((query,'No hits','No hits'),weight)
-        elif atuple[1:] == (None,None):
+        elif atuple[1:] == tuple( (len(atuple)-1) * [None] ):
             pass
         elif atuple[1] is None or atuple[2] is None:
             raise Exception("error - unexpected results %s from blast output - incomplete taxonomy tuple"%str(atuple))        
@@ -47,6 +48,18 @@ def my_top_hit_provider(filename, *xargs):
     top_hits = (group.next() for (key, group) in groups)
     return top_hits
 
+def my_best_hit_provider(filename, *xargs):
+    """
+    takes a stream which may contain multiple hits, and yields just the "best" hit in each group, as determined by smallest evalue - assumes
+    the evalue is the second field 
+    """
+    groups = itertools.groupby(my_hit_provider(filename, *xargs), lambda x:x[0][0])    
+    #top_hits = (group.next() for (key, group) in groups)
+    top_hits = (sorted(group, cmp=lambda x,y:cmp(float(x[0][1]), float(y[0][1])))[0] for (key, group) in groups)
+
+    return top_hits
+
+
 
 def my_spectrum_value_provider(interval_weight, *xargs):
     """
@@ -59,15 +72,15 @@ def my_spectrum_value_provider(interval_weight, *xargs):
     #print interval_weight
     return ((interval_weight[1],interval_weight[0][1],interval_weight[0][2]),)       
 
-def build_tax_distribution(datafile, weighting_method = None):
+def build_tax_distribution(datafile, weighting_method = None, column_numbers = [0,7,6]):
     distob = prism([datafile], 1)
     distob.file_to_stream_func = my_top_hit_provider
     #distob.DEBUG = True
-    distob.file_to_stream_func_xargs = [weighting_method,0,7,6] # i.e. pick out first field, then kingdom, comnames
+    distob.file_to_stream_func_xargs = [weighting_method] + column_numbers # i.e. pick out first field, then kingdom, comnames
     distob.interval_locator_funcs = [bin_discrete_value, bin_discrete_value]
     distob.spectrum_value_provider_func = my_spectrum_value_provider
     distdata = build(distob,"singlethread")
-    distob.save("%s.pickle"%datafile)
+    distob.save("%s.tax.pickle"%datafile)
     return distdata
 
 def tax_cmp(x,y):
@@ -145,7 +158,16 @@ def write_summaries(basename,tax_dist):
 
 def debug(options):
     #test_iter = my_hit_provider(options["filenames"][0], *[None,0,7,6])
-    test_iter = my_top_hit_provider(options["filenames"][0], *["tag_count",0,7,6])
+    columns=["tag_count"] + options["column_numbers"] 
+    
+    #test_iter = my_top_hit_provider(options["filenames"][0], *["tag_count",0,7,6])
+    if options["top_hit_selection_method"] == "first": 
+        test_iter = my_top_hit_provider(options["filenames"][0], *columns)
+    elif options["top_hit_selection_method"] == "best":
+        test_iter = my_best_hit_provider(options["filenames"][0], *columns)
+    else:
+        test_iter= my_hit_provider(options["filenames"][0], *columns)
+
 
     for item in test_iter:
         print item
@@ -165,7 +187,11 @@ def get_options():
 
 example :
 
-./summarise_hiseq_taxonomy.py  /dataset/hiseq/scratch/postprocessing/Salmon_mixed_runs.processed_in_progress/taxonomy_in_progress/Project_Salmon_HalfVol_ApeKI_Sample_SQ0031.list.nt_blastresults.txt.gz
+./taxonomy_prism.py  /dataset/hiseq/scratch/postprocessing/Salmon_mixed_runs.processed_in_progress/taxonomy_in_progress/Project_Salmon_HalfVol_ApeKI_Sample_SQ0031.list.nt_blastresults.txt.gz
+./taxonomy_prism.py  --column_numbers 0,7,6 --summary_type dump_top_hits /dataset/gseq_processing/scratch/gbs/181005_D00390_0407_BCCV91ANXX/SQ0807.all.PstI.PstI/annotation/qc314325-1_CCV91ANXX_4_807_X4.cnt.tag_count_unique.s.05m2T10_taggt2.fasta.blastn.nt.evalue1.0e10dust20641outfmt7qseqidsseqidpidentevaluestaxidssscinamesscomnamessskingdomsstitle.results
+./taxonomy_prism.py   --summary_type dump_top_hits --top_hit_selection_method best /dataset/gseq_processing/scratch/gbs/181005_D00390_0407_BCCV91ANXX/SQ0807.all.PstI.PstI/annotation/qc314325-1_CCV91ANXX_4_807_X4.cnt.tag_count_unique.s.05m2T10_taggt2.fasta.blastn.nt.evalue1.0e10dust20641outfmt7qseqidsseqidpidentevaluestaxidssscinamesscomnamessskingdomsstitle.results
+./taxonomy_prism.py  --column_numbers 0,3,7,6  --summary_type dump_top_hits --top_hit_selection_method best /dataset/gseq_processing/scratch/gbs/181005_D00390_0407_BCCV91ANXX/SQ0807.all.PstI.PstI/annotation/qc314325-1_CCV91ANXX_4_807_X4.cnt.tag_count_unique.s.05m2T10_taggt2.fasta.blastn.nt.evalue1.0e10dust20641outfmt7qseqidsseqidpidentevaluestaxidssscinamesscomnamessskingdomsstitle.results
+
 
 where input file is generated by the following blast format string :
 
@@ -195,14 +221,20 @@ optionally, the query line can specify a weighting to be used as a count instead
     parser = argparse.ArgumentParser(description=description, epilog=long_description, formatter_class = argparse.RawDescriptionHelpFormatter)
     parser.add_argument('filenames', type=str, nargs="*",help='input file of blast hits (optionally compressed with gzip)')    
     parser.add_argument('--summary_type', dest='summary_type', default="sample_summaries", \
-                   choices=["sample_summaries", "summary_table"],help="summary type (default: sample_summaries")
+                   choices=["sample_summaries", "summary_table", "dump_top_hits"],help="summary type (default: sample_summaries")
     parser.add_argument('--measure', dest='measure', default="frequency", \
                    choices=["frequency", "information"],help="measure (default: frequency")
     parser.add_argument('--rownames' , dest='rownames', default=False,action='store_true', help="combine kingdom and family fields to make a rowname")
     parser.add_argument('--weighting_method' , dest='weighting_method', default=None,choices=["tag_count"],help="weighting method")
+    parser.add_argument('--column_numbers' , dest='column_numbers', default="0,7,6" ,help="column numbers to output")
+    parser.add_argument('--top_hit_selection_method' , dest='top_hit_selection_method', default="first",choices=["first", "best", "all"],help="top_hit_selection_method")
 
 
     args = vars(parser.parse_args())
+
+    args["column_numbers"] =  [int(item) for item in re.split(",", args["column_numbers"])]
+
+    
     return args
 
         
@@ -223,6 +255,8 @@ def main():
             tax_dist = build_tax_distribution(filename, weighting_method = args["weighting_method"])
             print tax_dist
             write_summaries(filename,tax_dist)
+    elif args["summary_type"] == "dump_top_hits" :
+        debug(args)
     elif args["summary_type"] == "summary_table" :
         #print "summarising %s"%str(args["filename"])
         get_sample_tax_distribution(args["filenames"], args["measure"], args["rownames"])
