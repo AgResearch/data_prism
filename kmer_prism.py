@@ -538,33 +538,35 @@ kmer_prism.py -t entropy -k 6 -p 20  /data/project2/*.fastq.gz /references/ref1.
     
     args = vars(parser.parse_args())
 
-    # checks
-    if args["num_processes"] < 1 or args["num_processes"] > PROC_POOL_SIZE:
-        parser.error("num_processes must be between 1 and %d"%PROC_POOL_SIZE)
 
-    # should specify either a kmer_size, or a list of patterns (but not both)
+    # checks
     if args["summary_type"] != "assembly": 
+        if args["num_processes"] < 1 or args["num_processes"] > PROC_POOL_SIZE:
+            parser.error("num_processes must be between 1 and %d"%PROC_POOL_SIZE)
+
+        # should specify either a kmer_size, or a list of patterns (but not both)
+
         if args["kmer_size"] is None and args["kmer_regexps"] is None:
             parser.error("should specify either kmer_size or a list of patterns")
         elif args["kmer_size"] is not None and args["kmer_regexps"] is not None:
             parser.error("should specify either kmer_size or a list of patterns but not both")
-        
-    # either input file or distribution file should exist 
-    for file_name in args["file_names"]:
-        if not os.path.isfile(file_name) and not os.path.exists(get_save_filename(file_name, args["builddir"])):
-            parser.error("could not find either %s or %s"%(file_name,get_save_filename(file_name, args["builddir"])))
-        break
+            
+        # either input file or distribution file should exist 
+        for file_name in args["file_names"]:
+            if not os.path.isfile(file_name) and not os.path.exists(get_save_filename(file_name, args["builddir"])):
+                parser.error("could not find either %s or %s"%(file_name,get_save_filename(file_name, args["builddir"])))
+            break
 
-    # output file should not already exist
-    if os.path.exists(args["output_filename"]):
-        parser.error("error output file %(output_filename)s already exists"%args)
+        # output file should not already exist
+        if os.path.exists(args["output_filename"]):
+            parser.error("error output file %(output_filename)s already exists"%args)
 
 
-    # parse kmer_regexps
-    if args["kmer_regexps"] is not None:
-        args["kmer_regexps"] = re.split("\s*,\s*", args["kmer_regexps"])
-    else:
-        args["kmer_regexps"]= []
+        # parse kmer_regexps
+        if args["kmer_regexps"] is not None:
+            args["kmer_regexps"] = re.split("\s*,\s*", args["kmer_regexps"])
+        else:
+            args["kmer_regexps"]= []
     
         
     return args
