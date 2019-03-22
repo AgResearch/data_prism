@@ -1,20 +1,22 @@
+from __future__ import print_function
 import re
 import itertools
 from multiprocessing import Pool, cpu_count
 import pickle
 import os
 import string
-import exceptions
+import sys
+if sys.version_info <= (2, 8):
+   from exceptions import Exception
 import gzip
 import csv
 import math
 from types import GeneratorType
-import sys
 
 
 PROC_POOL_SIZE=30
 
-class data_prism_exception(exceptions.Exception):
+class data_prism_exception(Exception):
     def __init__(self,args=None):
         super(data_prism_exception, self).__init__(args)
 
@@ -61,7 +63,7 @@ class prism(object):
 
     def summary(self, details = False):
         if details:
-            print """
+            print("""
                spectrum summary:
                
                total interval spectrum_value =     %s
@@ -79,9 +81,9 @@ class prism(object):
             """%(self.total_spectrum_value, len(self.interval_locator_funcs), self.part_count,\
                  str(self.input_filenames), str(self.interval_locator_parameters), str(self.interval_locator_funcs),\
                  str(self.assignments_files),str(self.file_to_stream_func),\
-                 str(self.file_to_stream_func_xargs))
+                 str(self.file_to_stream_func_xargs)))
         else:
-            print """
+            print("""
                spectrum summary:
                
                total interval spectrum_value =     %s
@@ -91,12 +93,12 @@ class prism(object):
                input filenames:         %s
                
             """%(self.total_spectrum_value, len(self.interval_locator_funcs), self.part_count,self.approximate_zero,\
-                 str(self.input_filenames))
+                 str(self.input_filenames)))
             
     def list(self):
         spectrumdata = self.get_spectrum()
         for (interval, value) in spectrumdata.items():
-            print interval, value
+            print(interval, value)
             
              
     def check_settings(self):
@@ -120,7 +122,7 @@ class prism(object):
         file_streams = [self.file_to_stream_func(filename, *self.file_to_stream_func_xargs) for filename in self.input_filenames]
         if self.input_streams is not None:
             #print "(using additional %d input readers with record counts : %s)"%(len(self.inpucount_providert_streams), str(map(len, self.input_streams)))
-            print "(using additional %d input readers)"%len(self.input_streams)
+            print("(using additional %d input readers)"%len(self.input_streams))
 
             all_streams = file_streams + self.input_streams
             all_streams = itertools.chain(*all_streams)
@@ -150,18 +152,18 @@ class prism(object):
         sparse_data_summary = {}
         for interval in myslice:
             if self.DEBUG:
-                print "DEBUG raw value : %s"%str(interval)
+                print("DEBUG raw value : %s"%str(interval))
 
             for spectrum_value_tuple in self.spectrum_value_provider_func(interval, *self.spectrum_value_provider_func_xargs):
                 if self.DEBUG:
-                    print "DEBUG spectrum_value_tuple = %s length %d"%(str(spectrum_value_tuple), len(spectrum_value_tuple))
+                    print("DEBUG spectrum_value_tuple = %s length %d"%(str(spectrum_value_tuple), len(spectrum_value_tuple)))
 
                 if len(spectrum_value_tuple) != 1+len(self.interval_locator_funcs):
                     raise data_prism_exception("Error - I received a spectrum_value_tuple %s but there are %d interval locators for locating the value"%(str(spectrum_value_tuple), len(self.interval_locator_funcs)))
                 spectrum_value = float(spectrum_value_tuple[0])
                 spectrum_interval = spectrum_value_tuple[1:]
                 if self.DEBUG:
-                    print "interval tuple = %s spectrum_value = %s"%(spectrum_interval, spectrum_value)
+                    print("interval tuple = %s spectrum_value = %s"%(spectrum_interval, spectrum_value))
                 if type(spectrum_interval) != tuple:
                     raise data_prism_exception("Error - I got %s from the spectrum_value provider: interval should be a tuple , instead it is %s (%s)"%(str(spectrum_value), str(spectrum_interval), type(spectrum_interval)))
                 
@@ -179,7 +181,7 @@ class prism(object):
         for (sparse_key, sparse_total) in sparse_data_summary.items():
 
             if len(sparse_key) != len(self.interval_locator_funcs):
-                print "warning  - interval to map (%s) is %d dimensional but %d locators are specified"%(str(sparse_key), len(sparse_key), len(self.interval_locator_funcs))
+                print("warning  - interval to map (%s) is %d dimensional but %d locators are specified"%(str(sparse_key), len(sparse_key), len(self.interval_locator_funcs)))
                 continue
                 
             interval = self.get_containing_interval(sparse_key)
@@ -218,7 +220,7 @@ class prism(object):
 
     
     def save(self, filename):
-        print "saving prism object to %s"%filename
+        print("saving prism object to %s"%filename)
         #print "object contains : %s"%dir(self)
         
         input_streams = self.input_streams
@@ -282,11 +284,11 @@ class prism(object):
         """
         this method gets projections of a set of intervals across multiple spectra
         """
-        print "distributing projections across %d processes"%proc_pool_size        
+        print("distributing projections across %d processes"%proc_pool_size)        
         pool = Pool(proc_pool_size)
-        print "get_projections : loading %s"%str(spectrum_names)
+        print("get_projections : loading %s"%str(spectrum_names))
         spectra = pool.map(p_load,spectrum_names)
-        print "done loading %d spectra"%len(spectra)
+        print("done loading %d spectra"%len(spectra))
 
         args = zip(spectra, [intervals for spectrum in spectra], [return_intervals for spectrum in spectra])
 
@@ -320,23 +322,23 @@ class prism(object):
         """
         interval_names = space_iter.next()
         if prism.DEBUG:
-            print "**** DEBUG ranking"            
-            print str(interval_names)
+            print("**** DEBUG ranking")            
+            print(str(interval_names))
             
         space_tuples = list(space_iter)
         if prism.DEBUG:
-            print "**** DEBUG ranking"
-            print str(space_tuples)
+            print("**** DEBUG ranking")
+            print(str(space_tuples))
 
         ranked_columns=[]
         for iinterval in range(0,len(interval_names)):
             index = range(0,len(space_tuples))
 
             if prism.DEBUG:
-                print "**** DEBUG ranking"
-                print index
+                print("**** DEBUG ranking")
+                print(index)
                 for i in range(0,len(space_tuples)):
-                    print iinterval, i, space_tuples[i][iinterval]
+                    print(iinterval, i, space_tuples[i][iinterval])
                 
                 
             ordered_index = sorted(index, lambda index1, index2: cmp(space_tuples[index1][iinterval], space_tuples[index2][iinterval]))
@@ -348,8 +350,8 @@ class prism(object):
             ranked_columns.append(ranks)
 
         if prism.DEBUG:
-            print "**** DEBUG ranking"
-            print ranked_columns
+            print("**** DEBUG ranking")
+            print(ranked_columns)
 
         return itertools.chain([interval_names], itertools.izip(*ranked_columns)) 
 
@@ -485,7 +487,9 @@ class prism(object):
 # top level versions of spectrum methods
 # for use in multiprocessing context
 #################################################
-def p_get_raw_projection((spectrum, intervals, return_intervals)):
+def p_get_raw_projection(arg_tuple):
+
+    (spectrum, intervals, return_intervals) = arg_tuple 
 
     projection = len(intervals) * [None]
     if return_intervals:
@@ -508,7 +512,8 @@ def p_get_raw_projection((spectrum, intervals, return_intervals)):
         return (projection, intervals)
 
 
-def p_get_information_projection((spectrum, intervals, return_intervals)):
+def p_get_information_projection(arg_tuple):
+    (spectrum, intervals, return_intervals) = arg_tuple
     projection = len(intervals) * [None]
     if return_intervals:
         intervals = len(intervals) * [None]
@@ -546,7 +551,8 @@ def p_get_information_projection((spectrum, intervals, return_intervals)):
         return (projection, intervals)
 
 
-def p_get_signed_information_projection((spectrum, intervals, return_intervals)):
+def p_get_signed_information_projection(arg_tuple):
+    (spectrum, intervals, return_intervals) = arg_tuple
     projection = len(intervals) * [None]
     if return_intervals:
         intervals = len(intervals) * [None]
@@ -590,7 +596,8 @@ def p_get_signed_information_projection((spectrum, intervals, return_intervals))
         return (projection, intervals)
 
 
-def p_get_unsigned_information_projection((spectrum, intervals, return_intervals)):
+def p_get_unsigned_information_projection(arg_tuple):
+    (spectrum, intervals, return_intervals) = arg_tuple
     projection = len(intervals) * [None]
     if return_intervals:
         intervals = len(intervals) * [None]
@@ -840,8 +847,9 @@ def kmer_count_from_sequence(sequence, *args):
 #################################################
 
 
-def build_part((spectrum_instance, slice_number)):
-    print "build_part is building part %d"%slice_number
+def build_part(arg_tuple):
+    (spectrum_instance, slice_number) = arg_tuple
+    print("build_part is building part %d"%slice_number)
     return spectrum_instance.get_partial_spectrum(slice_number)
 
 def build(spectrum_instance, use="multithreads", proc_pool_size = PROC_POOL_SIZE):
@@ -857,7 +865,7 @@ def build(spectrum_instance, use="multithreads", proc_pool_size = PROC_POOL_SIZE
         
         args = [(spectrum_instance, slice_number)  for slice_number in range(0,spectrum_instance.part_count)]
 
-        print "mapping %s build parts to a pool of size %d"%(len(args), proc_pool_size)
+        print("mapping %s build parts to a pool of size %d"%(len(args), proc_pool_size))
         spectrum_instance.part_dict = dict(pool.map(build_part,args))
 
         return spectrum_instance.get_spectrum()
