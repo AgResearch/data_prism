@@ -30,6 +30,18 @@ class prism(object):
     """
 
     DEBUG = False
+    input_streams = None
+    """this allows a user to pass in one or more "pre-cooked" python value providers - i.e.
+    arrays of tuples. The tuples provided must be consistent with the tuples that the
+    file_to_stream_func function yields when applied to the input files. Note however that
+    if you pass in an input stream, you can't use the multithreaded build method,
+    as streams can't be pickled"""
+
+    interval_locator_parameters = []
+    """array with either length zero or same length as the number of dimensions. (Specify this if you use the
+    built-in interval locators)"""
+    
+    
 
     def __init__(self,input_filenames, part_count = 1, input_streams=None):
         super(prism, self).__init__()
@@ -38,18 +50,13 @@ class prism(object):
         self.input_filenames = input_filenames
         if self.input_filenames is None:
             self.input_filenames = []
-            
-        self.input_streams = input_streams # this allows a user to pass in one or more "pre-cooked" python value providers - i.e.
-                                           # arrays of tuples. The tuples provided must be consistent with the tuples that the
-                                           # file_to_stream_func function yields when applied to the input files. Note however that
-                                           # if you pass in an input stream, you can't use the multithreaded build method,
-                                           # as streams can't be pickled 
+
+        self.input_streams = input_streams
                                         
         self.part_count = part_count
         self.total_spectrum_value = 0
         self.approximate_zero = None
-        self.interval_locator_parameters = []   # Array with either length zero or same length as the number of dimensions. (Specify this if you use the
-                                          # built-in interval locators)
+        self.interval_locator_parameters = []   
         
         self.interval_locator_funcs = []  # an array of functions suitable for locating which multi-dimensional interval a given value-tuple
                                           # should be assigned to. There should be same length as interval_locator_parameters
@@ -282,7 +289,8 @@ class prism(object):
     @staticmethod
     def get_projections(spectrum_names, intervals, projection_type, return_intervals = False, proc_pool_size = PROC_POOL_SIZE):
         """
-        this method gets projections of a set of intervals across multiple spectra
+        this method gets projections of a set of intervals across multiple spectra, returning
+        the projections as a list of lists of (value1, value2, value3, etc) tuples 
         """
         print("distributing projections across %d processes"%proc_pool_size)        
         pool = Pool(proc_pool_size)
@@ -304,6 +312,29 @@ class prism(object):
             raise data_prism_exception("projection type %s not supported"%projection_type)
 
         return projections
+
+    @staticmethod
+    def save_projections(spectrum_names, intervals, projections, filename):
+       """
+       this method saves projections (a list of lists of tuples) as a tab-delimited text file including
+       row and column names. There is one column per element of spectrum_names, and one row per member of
+       intervals. The interval list is assumed to be in the same order as the project tuple list.
+       The projections would typically be obtained by a call to get_projections( . . .return_intervals = False)
+       """
+
+       columnname_iter = [tuple([spectrum_name for spectrum_name in spectrum_names])]
+       
+       # this yields a row iterator, with the first row being column headings 
+       row_iter = itertools.chain(columnname_iter, itertools.izip(*projections))
+
+       # make a rowname iterator , including column header
+       rowname_iter = itertools.chain([("interval")],intervals)
+
+       row_and_rowname_iter = itertools.izip(rowname_iter, row_iter)
+
+       with open(filename, "w") as outfile:
+          for row in row_and_rowname_iter:
+             print("%s\t%s"%("%s"%row[0], string.join((str(item) for item in row[1]),"\t")), file=outfile)      
 
 
 #################################################
