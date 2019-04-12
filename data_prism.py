@@ -334,9 +334,44 @@ class prism(object):
 
        with open(filename, "w") as outfile:
           for row in row_and_rowname_iter:
-             print("%s\t%s"%("%s"%row[0], string.join((str(item) for item in row[1]),"\t")), file=outfile)      
+             print("%s\t%s"%("%s"%row[0], string.join((str(item) for item in row[1]),"\t")), file=outfile)
+
+    @staticmethod
+    def load_projections(filename, colnames_only = False):
+       """
+       this method loads from a saved file of projections, stipping column and row names and
+       returns a row iterator
+       """
+       with open(filename,"r") as instream:
+          if colnames_only:
+             record_tuples = (re.split("\t", record.strip())[0] for record in instream)
+             record_tuples.next()   
+             return list(record_tuples)             
+          else:  
+             record_tuples = (re.split("\t", record.strip())[1:] for record in instream)
+             record_tuples.next()   
+             return list(record_tuples)
 
 
+    @staticmethod
+    def query_spectra(target_spectra, query_spectra, target_names):
+       """ this method emits the euclidean distance between each spectrum in
+       target_spectra, with each spectrum on query_spectra. This can be used to query
+       a set of target spectra, with a given query spetrum - the output would be
+       sorted and the "matches" are those with the shortest distance 
+       """
+       query_results = []
+       name_iter = (name for name in target_names)
+       for target in target_spectra:
+          target_name = name_iter.next() 
+          for query  in query_spectra:
+             query_results.append((target_name, math.sqrt(reduce(lambda x,y:x+y, map(lambda q,t:(float(q)-float(t))**2, query, target)))))
+
+       
+       return sorted(query_results, lambda x,y:cmp(x[1],y[1]))
+                   
+             
+      
 #################################################
 # distance-related  methods
 # these methods don't really belong in this class here as a convenience.
@@ -508,9 +543,9 @@ class prism(object):
 
     @staticmethod
     def print_distance_matrix(distance_matrix, interval_names_sorted, outfile=sys.stdout):   
-        print >> outfile, string.join([""] + interval_names_sorted, "\t")
+        print(string.join([""] + interval_names_sorted, "\t"), file=outfile)
         for row_interval in interval_names_sorted:
-            print >> outfile, string.join([row_interval]+[str(distance_matrix[(row_interval, col_interval)]) for col_interval in interval_names_sorted], "\t")
+            print(string.join([row_interval]+[str(distance_matrix[(row_interval, col_interval)]) for col_interval in interval_names_sorted], "\t"),file=outfile)
 
 
 
