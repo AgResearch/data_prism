@@ -62,10 +62,10 @@ of other blasts runs.
                     yield tuple([query, identity])
                 raise StopIteration                     
             continue
-        if atuple[0] == "Query=":
+        elif atuple[0] == "Query=":
             query=atuple[1]
             identity = None
-        if atuple[0][0] == ">":
+        elif atuple[0][0] == ">":
             text = (" ".join(atuple)).lower()
         elif atuple[0] == "Identities":
             if query is not None:
@@ -135,21 +135,30 @@ The context of this is in summarising blast results against genbank , where we a
 interested in summarising all "good hits" that the query has. We are only interested
 in counting the taxa that are hit, so we just yield a text description 
 """
+    target=xargs[0]
     tuple_stream = get_text_stream(filename)
     tuple_stream=(re.split("\s+", record.strip()) for record in tuple_stream)
 
     while True:
         atuple = tuple_stream.next()
         if len(atuple) <= 1:
-            continue 
-        if atuple[0][0] == ">":
-            text = (" ".join(atuple[1:5]))
-        if atuple[0] == "Identities":
+            continue
+        elif atuple[0] == "Query=":
+            query=atuple[1]
+            text=None     
+        elif atuple[0][0] == ">":
+            text = (" ".join(atuple[1:6]))
+        elif atuple[0] == "Identities":
             # only consider alignments across the length of the query , i.e 100, and with at least 95 identities 
             match=re.search("(\d+)/(\d+)", atuple[2])
             (identities,length) = (int(match.groups()[0]), int(match.groups()[1]))
             if length == 100 and identities >= 95:
-                yield (text,)
+                if target == "good_hit_centric":
+                    yield (text,)
+                elif target == "good_pairs":
+                    yield (query, text)
+                else:
+                    raise Exception("error in hit provider, unsupported target %s"%target )
                     
 
 def my_top_hit_provider(filename, *xargs):
@@ -188,9 +197,17 @@ def build_spectrum(datafile, options, target="first_hit"):
         hit_prism.file_to_stream_func_xargs = [options["hit_pattern_to_match"], options["hit_pattern_to_not_match"]]
         hit_prism.spectrum_value_provider_func = pctidentity_value_provider
         hit_prism.interval_locator_funcs = [bin_discrete_value]        
-    else:
+    elif target == "good_hit_centric":
         hit_prism.file_to_stream_func = my_good_hit_provider
-        hit_prism.interval_locator_funcs = [bin_discrete_value]        
+        hit_prism.file_to_stream_func_xargs = [target]
+        hit_prism.interval_locator_funcs = [bin_discrete_value]
+    elif target == "good_pairs":
+        hit_prism.file_to_stream_func = my_good_hit_provider
+        hit_prism.file_to_stream_func_xargs = [target]
+        hit_prism.interval_locator_funcs = [bin_discrete_value, bin_discrete_value]
+    else:
+        raise Exception("error in build_spectrum , unsupported target %s"%target)
+    
     
     spectrum_data = build(hit_prism,"singlethread")
     hit_prism.save("%s.pickle"%datafile)
@@ -273,7 +290,7 @@ summarise_probe_blasts.py -a "build_good" design/Probe7.fa.genbankhits.gz
     parser = argparse.ArgumentParser(description=description, epilog=long_description, formatter_class = argparse.RawDescriptionHelpFormatter)
     parser.add_argument('filename', type=str, nargs="*",help='input file of blast hits (optionally compressed with gzip)')    
     parser.add_argument('--use', dest='use', default="use", choices=["pctidentity"],help="use")
-    parser.add_argument('-a', dest='action', default="build_first", choices=["build_first", "build_good", "list", "summarise", "query"],help="action")
+    parser.add_argument('-a', dest='action', default="build_first", choices=["build_first", "build_good_hit_centric", "build_good_pairs", "list", "summarise", "query"],help="action")
     parser.add_argument('-p', dest='num_processes', type=int, default=10, help="num_processes")
     parser.add_argument('-t', dest='summary_type', type=str, default="raw", choices=["raw"], help="summary_type")
     parser.add_argument('-X', dest='hit_pattern_to_not_match', type=str, default = None , help="hit regexp to not match")    
@@ -297,15 +314,19 @@ def main():
     #test(args["filename"][0])
     #return
 
-    if args["action"] in ["build_first", "build_good", "list"]:
+    if args["action"] in ["build_first", "build_good_hit_centric", "build_good_pairs", "list"]:
         for filename in  args["filename"]:
 
             if args["action"] == "build_first":
                 dist = build_spectrum(filename, args, target="first_hit")
-            if args["action"] == "build_good":
-                dist = build_spectrum(filename, args, target="good_hits")                
+            elif args["action"] == "build_good_hit_centric":
+                dist = build_spectrum(filename, args, target="good_hit_centric")
+            elif args["action"] == "build_good_pairs":
+                dist = build_spectrum(filename, args, target="good_pairs")                                
             elif args["action"] == "list":
                 dist = list_spectrum(filename, args)
+            else:
+                raise Exception("unsupported action %(action)s"%args)
     elif args["action"] == "summarise":
         summarise_spectra(args)
         #print dist
