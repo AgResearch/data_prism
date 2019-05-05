@@ -44,6 +44,14 @@ class prism(object):
     
 
     def __init__(self,input_filenames, part_count = 1, input_streams=None):
+        """
+        prism constructor
+       
+        :param input_filenames: a list of filenames
+        :param part_count: usually 1 but may be greater than 1 for large spectra
+       
+        """
+       
         super(prism, self).__init__()
 
         self.name = "noname"
@@ -69,6 +77,13 @@ class prism(object):
 
 
     def summary(self, details = False):
+        """
+
+        print a summary of the spectrum
+        
+        :param details: true for more details, false for less
+        
+        """
         if details:
             print("""
                spectrum summary:
@@ -334,7 +349,7 @@ class prism(object):
 
        with open(filename, "w") as outfile:
           for row in row_and_rowname_iter:
-             print("%s\t%s"%("%s"%row[0], string.join((str(item) for item in row[1]),"\t")), file=outfile)
+             print("%s\t%s"%(":".join(row[0]), string.join((str(item) for item in row[1]),"\t")), file=outfile)
 
     @staticmethod
     def load_projections(filename, colnames_only = False):
