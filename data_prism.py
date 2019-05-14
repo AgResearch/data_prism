@@ -802,31 +802,42 @@ def default_spectrum_value_provider(interval, *xargs):
     return (((1,)+interval),)     # this needs to provide a tuple of 1 tuples (not just a tuple)
                                # (because some provider functions provide tuples of many tuples)
 
-def get_file_type(file_name):
+def get_file_type(file_path):
     """
     Make best efforts to infer  file type from file name for some common file formats, and return a canonical
     type name. For other file formats, just return the suffix (e.g.
     foo.bar and foo.BAR would both return .bar in that case). May not infer correctly for 
     some names (e.g. blah.fastq.fasta etc)
     """
-    if re.search("(\.fasta|\.fa|\.fna|\.faa|\.seq)(\.|$)", file_name, re.I) != None:
+    real_path=file_path
+
+    if os.path.exists(file_path):
+       real_path=os.path.realpath(file_path)
+       
+    if re.search("(\.fasta|\.fa|\.fna|\.faa|\.seq)(\.|$)", real_path, re.I) != None:
         return "fasta"
-    elif re.search("(\.fastq|\.fq)(\.|$)", file_name, re.I) != None:
+    elif re.search("(\.fastq|\.fq)(\.|$)", real_path, re.I) != None:
         return "fastq"
     else:
-        return os.path.splitext(file_name)[1].lower()
+        return os.path.splitext(file_path)[1].lower()
     
 
-def get_text_stream(file_name):
+def get_text_stream(file_path):
     """
     this is used by most of the value providers below that use text files
     (tab seperated, csv etc)
     """
+
+    real_path=file_path
+
+    if os.path.exists(file_path):
+       real_path=os.path.realpath(file_path)
+    
     text_stream = None
-    if re.search("\.gz$", file_name, re.I) != None:
-        text_stream = gzip.open(file_name, 'rb')
+    if re.search("\.gz$", real_path, re.I) != None:
+        text_stream = gzip.open(real_path, 'rb')
     else:
-        text_stream = open(file_name,"r")
+        text_stream = open(real_path,"r")
     
     return text_stream
     
