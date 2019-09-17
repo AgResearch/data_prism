@@ -343,7 +343,7 @@ class prism(object):
        row_iter = itertools.chain(columnname_iter, itertools.izip(*projections))
 
        # make a rowname iterator , including column header
-       rowname_iter = itertools.chain([("interval")],intervals)
+       rowname_iter = itertools.chain([("interval",)],intervals)
 
        row_and_rowname_iter = itertools.izip(rowname_iter, row_iter)
 
