@@ -247,6 +247,11 @@ def query_spectra(options):
     target_names = prism.load_projections(options["filename"][0], colnames_only = True)    
     query_results = prism.query_spectra(target_spectra, query_spectra, target_names)
 
+    if options["action"] == "distance_to":
+        for item in query_results:
+            print("%s\t%s"%item) 
+        return
+
     # extract and sort those results with a distance of less than 0.001 from the query
     # query_results is a list of tuples , (probe_name, distance)
     # probe names are lie this : NC_002945.4_999201-999300 ,i.e. name_start_stop - we want
@@ -290,7 +295,7 @@ summarise_probe_blasts.py -a "build_good" design/Probe7.fa.genbankhits.gz
     parser = argparse.ArgumentParser(description=description, epilog=long_description, formatter_class = argparse.RawDescriptionHelpFormatter)
     parser.add_argument('filename', type=str, nargs="*",help='input file of blast hits (optionally compressed with gzip)')    
     parser.add_argument('--use', dest='use', default="use", choices=["pctidentity"],help="use")
-    parser.add_argument('-a', dest='action', default="build_first", choices=["build_first", "build_good_hit_centric", "build_good_pairs", "list", "summarise", "query"],help="action")
+    parser.add_argument('-a', dest='action', default="build_first", choices=["build_first", "build_good_hit_centric", "build_good_pairs", "list", "summarise", "query", "distance_to"],help="action")
     parser.add_argument('-p', dest='num_processes', type=int, default=10, help="num_processes")
     parser.add_argument('-t', dest='summary_type', type=str, default="raw", choices=["raw"], help="summary_type")
     parser.add_argument('-X', dest='hit_pattern_to_not_match', type=str, default = None , help="hit regexp to not match")    
@@ -330,7 +335,7 @@ def main():
     elif args["action"] == "summarise":
         summarise_spectra(args)
         #print dist
-    elif args["action"] == "query":
+    elif args["action"] in ["query", "distance_to"]:
         query_spectra(args)
     else:
         return
