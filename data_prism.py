@@ -233,9 +233,11 @@ class prism(object):
         # calulate an "approximate_zero"  - it is half the minimum raw value in any interval of the spectrum
         values = self.spectrum.values()
         if len(values) > 0:
-            self.approximate_zero = max(0.5, min(self.spectrum.values())/2.0)
+            #self.approximate_zero = max(0.5, min(self.spectrum.values())/2.0)
+            self.approximate_zero = 0.01
         else:
-            self.approximate_zero = 0.5
+            #self.approximate_zero = 0.5
+            self.approximate_zero = 0.01
             self.total_spectrum_value = self.approximate_zero 
 
         return self.spectrum
