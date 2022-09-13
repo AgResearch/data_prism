@@ -859,12 +859,27 @@ def from_tab_delimited_file(file_name, *xargs):
     """
     basic method - just split each record on white space and return tuples
     - will need to provide dimension interval specs and locators for each
-    element of the tuple
+    element of the tuple.
+
+    Note that this may return "ragged" records as it strips leading and trailing whitespace (i.e. including tabs)
     """
     if len(xargs) == 0:
         return (tuple(re.split("\t", record.strip())) for record in get_text_stream(file_name))
     else:
         return (tuple([outer_list(re.split("\t", record.strip()))[index] for index in xargs])  for record in get_text_stream(file_name))
+
+
+def from_nonragged_tab_delimited_file(file_name, *xargs):
+    """
+    basic method - just split each record on white space and return tuples
+    - will need to provide dimension interval specs and locators for each
+    element of the tuple
+    """
+    if len(xargs) == 0:
+        return (tuple(re.split("\t", record.translate(None,"\n\r"))) for record in get_text_stream(file_name))
+    else:
+        return (tuple([outer_list(re.split("\t", record.translate(None,"\n\r")))[index] for index in xargs])  for record in get_text_stream(file_name))
+
     
 def from_csv_file(file_name, *xargs):
     """
